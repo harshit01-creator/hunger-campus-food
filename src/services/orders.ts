@@ -1,7 +1,13 @@
-// Real-time order/receipt layer.
+// Real-time order/receipt layer using Supabase.
 // Implements QR-based auto handover confirmation (NO manual handover button).
 
-import firestore from '@react-native-firebase/firestore';
+import { createClient } from '@supabase/supabase-js';
+
+// Replace with your actual Supabase URL & Public Anon Key from your Supabase Dashboard
+const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
+const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY';
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export type OrderStatus = 'Order Confirmed' | 'Being Prepared' | 'Food Ready' | 'Completed';
 
@@ -26,29 +32,47 @@ export interface OrderDoc {
 const ORDERS = 'orders';
 
 /**
- * Subscribes to a single order document. Fires the callback instantly on
- * every status change. Returns an unsubscribe fn.
+ * Subscribes to a single order document via Supabase Realtime.
+ * Fires the callback instantly on every status change.
  */
 export function subscribeToOrder(orderId: string, onChange: (order: OrderDoc | null) => void) {
-  return firestore()
-    .collection(ORDERS)
-    .doc(orderId)
-    .onSnapshot(
-      snap => onChange(snap.exists ? ({orderId: snap.id, ...snap.data()} as OrderDoc) : null),
-      err => console.warn('[orders] onSnapshot error', err),
-    );
+  const channel = supabase
+    .channel(`order-${orderId}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: ORDERS, filter: `id=eq.${orderId}` },
+      (payload) => {
+        onChange(payload.new as OrderDoc);
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }
 
-/** Shop-owner view: live list of active orders for a shop. */
+/** Shop-owner view: live list of active orders for a shop via Supabase Realtime. */
 export function subscribeToShopOrders(shopId: string, onChange: (orders: OrderDoc[]) => void) {
-  return firestore()
-    .collection(ORDERS)
-    .where('shopId', '==', shopId)
-    .where('status', 'in', ['Order Confirmed', 'Being Prepared', 'Food Ready'])
-    .onSnapshot(
-      snap => onChange(snap.docs.map(d => ({orderId: d.id, ...d.data()} as OrderDoc))),
-      err => console.warn('[orders] shop onSnapshot error', err),
-    );
+  const channel = supabase
+    .channel(`shop-orders-${shopId}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: ORDERS, filter: `shopId=eq.${shopId}` },
+      async () => {
+        const { data } = await supabase
+          .from(ORDERS)
+          .select('*')
+          .eq('shopId', shopId)
+          .in('status', ['Order Confirmed', 'Being Prepared', 'Food Ready']);
+        onChange((data as OrderDoc[]) || []);
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }
 
 interface CreateOrderInput {
@@ -59,9 +83,11 @@ interface CreateOrderInput {
 }
 
 export async function createOrder(input: CreateOrderInput): Promise<{orderId: string; qrToken: string}> {
-  const ref = firestore().collection(ORDERS).doc();
-  const qrToken = `OKKPR-QR-${ref.id}-${Date.now()}`;
-  await ref.set({
+  const orderId = `HUNGER-${Math.floor(1000 + Math.random() * 9000)}`;
+  const qrToken = `HUNGER-QR-${orderId}-${Date.now()}`;
+  
+  await supabase.from(ORDERS).insert([{
+    orderId,
     shopId: input.shopId,
     items: input.items,
     grandTotal: input.grandTotal,
@@ -72,16 +98,20 @@ export async function createOrder(input: CreateOrderInput): Promise<{orderId: st
     qrToken,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-  });
-  return {orderId: ref.id, qrToken};
+  }]);
+
+  return {orderId, qrToken};
 }
 
 /** Shop owner action: "Food Ready" button. */
 export async function markFoodReady(orderId: string) {
-  await firestore().collection(ORDERS).doc(orderId).update({
-    status: 'Food Ready' as OrderStatus,
-    updatedAt: Date.now(),
-  });
+  await supabase
+    .from(ORDERS)
+    .update({
+      status: 'Food Ready' as OrderStatus,
+      updatedAt: Date.now(),
+    })
+    .eq('orderId', orderId);
 }
 
 /**
@@ -98,35 +128,32 @@ export async function verifyAndProcessQrHandover(
     try {
       parsed = JSON.parse(qrPayload);
     } catch {
-      // Fallback: check if raw order ID or string token was passed
-      parsed = { orderId: qrPayload };
+      parsed = { orderId: qrPayload.trim() };
     }
 
-    const targetOrderId = parsed.orderId || parsed.id || qrPayload;
+    const targetOrderId = parsed.orderId || parsed.id || qrPayload.trim();
     if (!targetOrderId) {
       return { success: false, message: 'Invalid QR Code payload format.' };
     }
 
-    const docRef = firestore().collection(ORDERS).doc(targetOrderId);
-    const snap = await docRef.get();
+    const { data: orderData, error } = await supabase
+      .from(ORDERS)
+      .select('*')
+      .eq('orderId', targetOrderId)
+      .single();
 
-    if (!snap.exists) {
+    if (error || !orderData) {
       return { success: false, message: `Order #${targetOrderId} not found in database.` };
     }
 
-    const orderData = snap.data() as OrderDoc;
-
-    // Check shop authorization
     if (orderData.shopId !== authenticatedShopId) {
       return { success: false, message: `Access Denied: Order #${targetOrderId} belongs to another shop.` };
     }
 
-    // Check if already handed over
     if (orderData.status === 'Completed' || orderData.foodCollected) {
       return { success: false, message: `Order #${targetOrderId} has ALREADY been marked as handed over.` };
     }
 
-    // Check if order is ready
     if (orderData.status !== 'Food Ready') {
       return { 
         success: false, 
@@ -134,14 +161,16 @@ export async function verifyAndProcessQrHandover(
       };
     }
 
-    // Execute automatic handover
-    await docRef.update({
-      status: 'Completed' as OrderStatus,
-      foodCollected: true,
-      handedOverAt: Date.now(),
-      handedOverBy: scannedByShopOwner,
-      updatedAt: Date.now(),
-    });
+    await supabase
+      .from(ORDERS)
+      .update({
+        status: 'Completed' as OrderStatus,
+        foodCollected: true,
+        handedOverAt: Date.now(),
+        handedOverBy: scannedByShopOwner,
+        updatedAt: Date.now(),
+      })
+      .eq('orderId', targetOrderId);
 
     return { 
       success: true, 
