@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>OK KPR</string>
+	<key>CFBundleName</key>
+	<string>OKKPR</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.okkpr</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+
+	<!-- Part 4: iOS UPI app detection via Linking.canOpenURL -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>upi</string>
+		<string>gpay</string>
+		<string>phonepe</string>
+		<string>paytmmp</string>
+		<string>bhim</string>
+		<string>credpay</string>
+		<string>tez</string>
+	</array>
+
+	<key>NSCameraUsageDescription</key>
+	<string>OK KPR needs camera access to capture payment screenshots.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>OK KPR uses your location to show nearby kitchens and track deliveries.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>OK KPR uses your location in the background for live delivery tracking.</string>
+
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+		<string>fetch</string>
+		<string>location</string>
+	</array>
+
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<false/>
+</dict>
+</plist>

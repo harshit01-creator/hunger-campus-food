@@ -1,0 +1,99 @@
+:root {
+  --primary: #1b488d;
+  --primary-hover: #15386d;
+  --accent: #22994f;
+  --bg-dark: #0b1120;
+  --card-bg: rgba(15, 23, 42, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: #0b1120;
+  background-image: 
+    radial-gradient(at 15% 15%, rgba(27, 72, 141, 0.25) 0px, transparent 50%),
+    radial-gradient(at 85% 85%, rgba(34, 153, 79, 0.22) 0px, transparent 50%);
+  background-attachment: fixed;
+  color: #f1f5f9;
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4, .font-heading {
+  font-family: 'Outfit', 'Inter', sans-serif;
+}
+
+.glass-panel {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(34, 153, 79, 0.4);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px -10px rgba(27, 72, 141, 0.3);
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #60a5fa 0%, #34d399 50%, #60a5fa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gradient-bg {
+  background: linear-gradient(135deg, #1b488d 0%, #22994f 100%);
+}
+
+.pulse-glow {
+  box-shadow: 0 0 20px rgba(27, 72, 141, 0.4);
+  animation: pulseGlow 2s infinite ease-in-out;
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(27, 72, 141, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 32px rgba(34, 153, 79, 0.6);
+  }
+}
+
+/* Matching Logo Frame Badge */
+.logo-badge {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 4px;
+  box-shadow: 0 0 20px rgba(27, 72, 141, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(34, 153, 79, 0.5);
+}

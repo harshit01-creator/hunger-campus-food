@@ -1,0 +1,164 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.okkpr"
+4    android:versionCode="1"
+5    android:versionName="1.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="24"
+9        android:targetSdkVersion="34" />
+10
+11    <uses-permission android:name="android.permission.INTERNET" />
+11-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:3:5-67
+11-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:3:22-64
+12    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+12-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:4:5-77
+12-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:4:22-74
+13    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+13-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:5:5-79
+13-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:5:22-76
+14    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+14-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:6:5-81
+14-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:6:22-78
+15    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+15-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:7:5-85
+15-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:7:22-82
+16    <uses-permission android:name="android.permission.CAMERA" />
+16-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:8:5-65
+16-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:8:22-62
+17    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+17-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:9:5-77
+17-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:9:22-74
+18
+19    <!--
+20         Required (Android 11+) so PackageManager.queryIntentActivities can
+21         see UPI apps — without this block, detection silently returns
+22         nothing on modern Android.
+23    -->
+24    <queries>
+24-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:14:5-19:15
+25        <intent>
+25-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:15:9-18:18
+26            <action android:name="android.intent.action.VIEW" />
+26-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:16:13-65
+26-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:16:21-62
+27
+28            <data android:scheme="upi" />
+28-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:17:13-42
+28-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:17:19-39
+29        </intent>
+30    </queries>
+31    <!--
+32    This manifest file is used only by Gradle to configure debug-only capabilities
+33    for React Native Apps.
+34    -->
+35    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+35-->[com.facebook.react:react-android:0.75.4] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\15f5c1600276e3310dea0bdac246f199\transformed\jetified-react-android-0.75.4-debug\AndroidManifest.xml:16:5-78
+35-->[com.facebook.react:react-android:0.75.4] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\15f5c1600276e3310dea0bdac246f199\transformed\jetified-react-android-0.75.4-debug\AndroidManifest.xml:16:22-75
+36
+37    <permission
+37-->[androidx.core:core:1.9.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\311149a5ec745b483130408a7a084dfc\transformed\core-1.9.0\AndroidManifest.xml:22:5-24:47
+38        android:name="com.okkpr.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+38-->[androidx.core:core:1.9.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\311149a5ec745b483130408a7a084dfc\transformed\core-1.9.0\AndroidManifest.xml:23:9-81
+39        android:protectionLevel="signature" />
+39-->[androidx.core:core:1.9.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\311149a5ec745b483130408a7a084dfc\transformed\core-1.9.0\AndroidManifest.xml:24:9-44
+40
+41    <uses-permission android:name="com.okkpr.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+41-->[androidx.core:core:1.9.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\311149a5ec745b483130408a7a084dfc\transformed\core-1.9.0\AndroidManifest.xml:26:5-97
+41-->[androidx.core:core:1.9.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\311149a5ec745b483130408a7a084dfc\transformed\core-1.9.0\AndroidManifest.xml:26:22-94
+42
+43    <application
+43-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:21:5-48:19
+44        android:name="com.okkpr.MainApplication"
+44-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:22:9-40
+45        android:allowBackup="false"
+45-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:26:9-36
+46        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+46-->[androidx.core:core:1.9.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\311149a5ec745b483130408a7a084dfc\transformed\core-1.9.0\AndroidManifest.xml:28:18-86
+47        android:debuggable="true"
+48        android:extractNativeLibs="false"
+49        android:icon="@mipmap/ic_launcher"
+49-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:24:9-43
+50        android:label="@string/app_name"
+50-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:23:9-41
+51        android:roundIcon="@mipmap/ic_launcher_round"
+51-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:25:9-54
+52        android:theme="@style/AppTheme"
+52-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:27:9-40
+53        android:usesCleartextTraffic="false" >
+53-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:28:9-45
+54        <activity
+54-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:30:9-41:20
+55            android:name="com.okkpr.MainActivity"
+55-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:31:13-41
+56            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode"
+56-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:33:13-90
+57            android:exported="true"
+57-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:36:13-36
+58            android:label="@string/app_name"
+58-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:32:13-45
+59            android:launchMode="singleTask"
+59-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:34:13-44
+60            android:windowSoftInputMode="adjustResize" >
+60-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:35:13-55
+61            <intent-filter>
+61-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:37:13-40:29
+62                <action android:name="android.intent.action.MAIN" />
+62-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:38:17-69
+62-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:38:25-66
+63
+64                <category android:name="android.intent.category.LAUNCHER" />
+64-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:39:17-77
+64-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:39:27-74
+65            </intent-filter>
+66        </activity>
+67
+68        <!--
+69             google-services.json must be placed at android/app/google-services.json
+70             and the Google Services Gradle plugin applied — see README.
+71        -->
+72        <meta-data
+72-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:45:9-47:54
+73            android:name="com.google.firebase.messaging.default_notification_icon"
+73-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:46:13-83
+74            android:resource="@mipmap/ic_launcher" />
+74-->C:\OKKPR\android\app\src\main\AndroidManifest.xml:47:13-51
+75
+76        <activity
+76-->[com.facebook.react:react-android:0.75.4] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\15f5c1600276e3310dea0bdac246f199\transformed\jetified-react-android-0.75.4-debug\AndroidManifest.xml:19:9-21:40
+77            android:name="com.facebook.react.devsupport.DevSettingsActivity"
+77-->[com.facebook.react:react-android:0.75.4] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\15f5c1600276e3310dea0bdac246f199\transformed\jetified-react-android-0.75.4-debug\AndroidManifest.xml:20:13-77
+78            android:exported="false" />
+78-->[com.facebook.react:react-android:0.75.4] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\15f5c1600276e3310dea0bdac246f199\transformed\jetified-react-android-0.75.4-debug\AndroidManifest.xml:21:13-37
+79
+80        <provider
+80-->[androidx.emoji2:emoji2:1.2.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\35ed6ae4faf6bf7dce87d672e884636b\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:24:9-32:20
+81            android:name="androidx.startup.InitializationProvider"
+81-->[androidx.emoji2:emoji2:1.2.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\35ed6ae4faf6bf7dce87d672e884636b\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:25:13-67
+82            android:authorities="com.okkpr.androidx-startup"
+82-->[androidx.emoji2:emoji2:1.2.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\35ed6ae4faf6bf7dce87d672e884636b\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:26:13-68
+83            android:exported="false" >
+83-->[androidx.emoji2:emoji2:1.2.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\35ed6ae4faf6bf7dce87d672e884636b\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:27:13-37
+84            <meta-data
+84-->[androidx.emoji2:emoji2:1.2.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\35ed6ae4faf6bf7dce87d672e884636b\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:29:13-31:52
+85                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+85-->[androidx.emoji2:emoji2:1.2.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\35ed6ae4faf6bf7dce87d672e884636b\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:30:17-75
+86                android:value="androidx.startup" />
+86-->[androidx.emoji2:emoji2:1.2.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\35ed6ae4faf6bf7dce87d672e884636b\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:31:17-49
+87            <meta-data
+87-->[androidx.lifecycle:lifecycle-process:2.4.1] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\d2e737a417d45bca6127390051129c0a\transformed\jetified-lifecycle-process-2.4.1\AndroidManifest.xml:31:13-33:52
+88                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+88-->[androidx.lifecycle:lifecycle-process:2.4.1] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\d2e737a417d45bca6127390051129c0a\transformed\jetified-lifecycle-process-2.4.1\AndroidManifest.xml:32:17-78
+89                android:value="androidx.startup" />
+89-->[androidx.lifecycle:lifecycle-process:2.4.1] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\d2e737a417d45bca6127390051129c0a\transformed\jetified-lifecycle-process-2.4.1\AndroidManifest.xml:33:17-49
+90        </provider>
+91
+92        <meta-data
+92-->[com.facebook.soloader:soloader:0.11.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\af968c2bc85d5dc6afd3575cce4753da\transformed\jetified-soloader-0.11.0\AndroidManifest.xml:12:9-14:37
+93            android:name="com.facebook.soloader.enabled"
+93-->[com.facebook.soloader:soloader:0.11.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\af968c2bc85d5dc6afd3575cce4753da\transformed\jetified-soloader-0.11.0\AndroidManifest.xml:13:13-57
+94            android:value="false" />
+94-->[com.facebook.soloader:soloader:0.11.0] C:\Users\G V HARSHIT NARAYAN\.gradle\caches\8.8\transforms\af968c2bc85d5dc6afd3575cce4753da\transformed\jetified-soloader-0.11.0\AndroidManifest.xml:14:13-34
+95    </application>
+96
+97</manifest>

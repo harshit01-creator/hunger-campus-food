@@ -1,0 +1,61 @@
+{
+  "name": "OKKPR",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "android": "react-native run-android",
+    "ios": "react-native run-ios",
+    "start": "react-native start",
+    "doctor": "react-native doctor",
+    "lint": "eslint .",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@react-native-community/geolocation": "^3.4.0",
+    "@react-native-firebase/app": "^20.5.0",
+    "@react-native-firebase/auth": "^20.5.0",
+    "@react-native-firebase/firestore": "^20.5.0",
+    "@react-native-firebase/messaging": "^20.5.0",
+    "@react-navigation/bottom-tabs": "^6.6.1",
+    "@react-navigation/native": "^6.1.18",
+    "@react-navigation/native-stack": "^6.11.0",
+    "canvas-confetti": "^1.9.4",
+    "html5-qrcode": "^2.3.8",
+    "lucide-react": "^1.25.0",
+    "react": "18.3.1",
+    "react-dom": "^18.3.1",
+    "react-native": "0.75.4",
+    "react-native-background-actions": "^4.0.1",
+    "react-native-fast-image": "^8.6.3",
+    "react-native-gesture-handler": "^2.19.0",
+    "react-native-html-to-pdf": "^0.12.0",
+    "react-native-safe-area-context": "^4.11.0",
+    "react-native-screens": "^3.34.0",
+    "react-native-share": "^11.0.3",
+    "react-native-svg": "^15.7.1",
+    "react-native-vector-icons": "^10.2.0",
+    "react-native-vision-camera": "^4.5.3"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/preset-env": "^7.25.4",
+    "@babel/runtime": "^7.25.4",
+    "@react-native-community/cli": "latest",
+    "@react-native/babel-preset": "0.75.4",
+    "@react-native/eslint-config": "0.75.4",
+    "@react-native/metro-config": "0.75.4",
+    "@react-native/typescript-config": "0.75.4",
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/react": "^18.2.6",
+    "@types/react-dom": "^18.3.1",
+    "@types/react-native-html-to-pdf": "^0.8.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "eslint": "^8.19.0",
+    "typescript": "5.0.4",
+    "vite": "^8.1.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
