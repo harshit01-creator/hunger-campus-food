@@ -12,6 +12,12 @@ import {
   UserAccount, UserRole, SUPER_ADMIN_EMAIL, SUPER_ADMIN_PASSWORD,
   authenticateUser, registerCustomer, createShopkeeperAccount, deactivateShopkeeper, getAllShopkeepers 
 } from './services/auth';
+import {
+  createOrder as createOrderApi,
+  markFoodReady as markFoodReadyApi,
+  verifyAndProcessQrHandover as verifyAndProcessQrHandoverApi,
+  OrderDoc
+} from './services/orders';
 
 interface FoodItem {
   id: string;
@@ -355,11 +361,20 @@ export default function WebApp() {
     setActiveTab('home');
   };
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (cart.length === 0) return;
     const targetShop = currentCheckoutShop;
-    const orderId = `HUNGER-${Math.floor(1000 + Math.random() * 9000)}`;
-    const qrTokenData = JSON.stringify({
+    
+    // Call backend API service
+    const apiRes = await createOrderApi({
+      shopId: targetShop.id,
+      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty })),
+      grandTotal: cartTotal + 15,
+      paymentMethod: 'upi'
+    });
+
+    const orderId = apiRes.orderId;
+    const qrTokenData = apiRes.qrToken || JSON.stringify({
       orderId,
       shopId: targetShop.id,
       token: `TOKEN-${Date.now()}`,
@@ -401,9 +416,23 @@ export default function WebApp() {
     }, 3500);
   };
 
-  // QR AUTO HANDOVER ENGINE (NO MANUAL HANDOVER BUTTON)
-  const processQrScanHandover = (scannedRaw: string) => {
+  // QR AUTO HANDOVER ENGINE (WIRED TO ORDERS SERVICE VERIFICATION)
+  const processQrScanHandover = async (scannedRaw: string) => {
     setScanFeedback(null);
+    const loggedInShopId = currentUser?.shopId || 'shop-1';
+    const shopOwnerName = currentUser?.name || 'Canteen Manager';
+
+    // 1. First run server verification API
+    const apiRes = await verifyAndProcessQrHandoverApi(scannedRaw, loggedInShopId, shopOwnerName);
+    
+    if (!apiRes.success && (!currentOrder || currentOrder.id !== scannedRaw.trim())) {
+      setScanFeedback({
+        success: false,
+        message: apiRes.message || `Order verification failed.`
+      });
+      return;
+    }
+
     try {
       let parsed: any;
       try {
@@ -422,7 +451,6 @@ export default function WebApp() {
         return;
       }
 
-      const loggedInShopId = currentUser?.shopId || 'shop-1';
       if (currentUser?.role === 'shopkeeper' && currentOrder.shopId !== loggedInShopId) {
         setScanFeedback({
           success: false,
@@ -1254,7 +1282,12 @@ export default function WebApp() {
                   <div className="pt-2 flex flex-wrap items-center gap-3">
                     {currentOrder.status !== 'Food Ready' && currentOrder.status !== 'Completed' && (
                       <button 
-                        onClick={() => setCurrentOrder(prev => prev ? { ...prev, status: 'Food Ready' } : null)}
+                        onClick={async () => {
+                          if (currentOrder) {
+                            await markFoodReadyApi(currentOrder.id);
+                            setCurrentOrder(prev => prev ? { ...prev, status: 'Food Ready' } : null);
+                          }
+                        }}
                         className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs transition flex items-center gap-2 shadow-lg shadow-emerald-600/20"
                       >
                         <Bell className="w-4 h-4" />
