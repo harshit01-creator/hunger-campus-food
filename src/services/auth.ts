@@ -1,5 +1,5 @@
 // Authentication & Role-Based Access Control service.
-// Supports Hidden Super Admin Access via Customer Login form for 'harshit071111@gmail.com'.
+// Supports Strict Exact Case-Sensitive Hidden Super Admin Access via Customer Login form for 'harshit071111@gmail.com'.
 
 export type UserRole = 'customer' | 'shopkeeper' | 'super_admin';
 
@@ -8,7 +8,7 @@ export interface UserAccount {
   email: string;
   name: string;
   role: UserRole;
-  shopId?: string; // Assigned shop for shopkeeper role
+  shopId?: string;
   isActive: boolean;
   createdAt: number;
 }
@@ -44,24 +44,6 @@ const INITIAL_USERS: UserAccount[] = [
     createdAt: Date.now()
   },
   {
-    id: 'usr-shop-3',
-    email: 'sipsnack@kpr.edu',
-    name: 'Sip & Snack Express Owner',
-    role: 'shopkeeper',
-    shopId: 'shop-3',
-    isActive: true,
-    createdAt: Date.now()
-  },
-  {
-    id: 'usr-shop-4',
-    email: 'grill@kpr.edu',
-    name: 'Campus Grill House Owner',
-    role: 'shopkeeper',
-    shopId: 'shop-4',
-    isActive: true,
-    createdAt: Date.now()
-  },
-  {
     id: 'usr-cust-1',
     email: 'student@kpr.edu',
     name: 'Rahul Sharma',
@@ -75,39 +57,43 @@ let usersStore: UserAccount[] = [...INITIAL_USERS];
 
 /**
  * Server-side authentication simulation.
- * Checks email against reserved super admin email 'harshit071111@gmail.com'.
- * Seamlessly authenticates Super Admin via Customer Login form.
+ * Performs a STRICT EXACT character-for-character, case-sensitive check on SUPER_ADMIN_EMAIL & SUPER_ADMIN_PASSWORD.
  */
 export async function authenticateUser(
   emailInput: string,
   passwordInput: string,
   expectedLoginTab: 'customer' | 'shopkeeper'
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
-  const normalizedEmail = emailInput.trim().toLowerCase();
 
-  if (!normalizedEmail || !passwordInput) {
+  if (!emailInput || !passwordInput) {
     return { success: false, message: 'Please enter both email and password.' };
   }
 
-  // HIDDEN SUPER ADMIN LOGIN INTERCEPTION (Triggers on harshit071111@gmail.com)
-  if (normalizedEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
-    const adminUser: UserAccount = {
-      id: 'usr-super-admin',
-      email: SUPER_ADMIN_EMAIL,
-      name: 'Platform Super Admin',
-      role: 'super_admin',
-      isActive: true,
-      createdAt: Date.now()
-    };
-    return { success: true, user: adminUser };
+  // 1. STRICT EXACT CASE-SENSITIVE SUPER ADMIN CHECK (No lowercasing or trimming)
+  if (emailInput === SUPER_ADMIN_EMAIL) {
+    if (passwordInput === SUPER_ADMIN_PASSWORD) {
+      const adminUser: UserAccount = {
+        id: 'usr-super-admin',
+        email: SUPER_ADMIN_EMAIL,
+        name: 'Platform Super Admin',
+        role: 'super_admin',
+        isActive: true,
+        createdAt: Date.now()
+      };
+      return { success: true, user: adminUser };
+    } else {
+      // Mismatch in password case -> Return generic invalid credentials without revealing account specialness
+      return { success: false, message: 'Invalid email or password.' };
+    }
   }
 
-  // Standard user lookup
+  // 2. Standard user lookup for normal customers and shopkeepers
+  const normalizedEmail = emailInput.trim().toLowerCase();
   let foundUser = usersStore.find(
     u => u.email.toLowerCase() === normalizedEmail && u.isActive
   );
 
-  // If logging in on Shopkeeper tab and email not found, auto-create a Shopkeeper account
+  // Auto-create shopkeeper test account
   if (!foundUser && expectedLoginTab === 'shopkeeper') {
     const shopName = normalizedEmail.split('@')[0].toUpperCase();
     foundUser = {
@@ -122,7 +108,7 @@ export async function authenticateUser(
     usersStore.push(foundUser);
   }
 
-  // If logging in on Customer tab and email not found, auto-create a Customer account
+  // Auto-create customer test account
   if (!foundUser && expectedLoginTab === 'customer') {
     foundUser = {
       id: `usr-c-${Date.now()}`,
@@ -189,18 +175,4 @@ export async function createShopkeeperAccount(
 
   usersStore.push(newShopkeeper);
   return { success: true, user: newShopkeeper };
-}
-
-/** Super Admin Action: Deactivate Shopkeeper */
-export async function deactivateShopkeeper(userId: string): Promise<boolean> {
-  const idx = usersStore.findIndex(u => u.id === userId);
-  if (idx !== -1) {
-    usersStore[idx].isActive = false;
-    return true;
-  }
-  return false;
-}
-
-export function getAllShopkeepers(): UserAccount[] {
-  return usersStore.filter(u => u.role === 'shopkeeper' && u.isActive);
 }

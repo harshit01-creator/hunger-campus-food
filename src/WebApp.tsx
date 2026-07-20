@@ -11,7 +11,7 @@ import confetti from 'canvas-confetti';
 import kprLogo from './assets/logo.png';
 import { 
   UserAccount, UserRole, SUPER_ADMIN_EMAIL, SUPER_ADMIN_PASSWORD,
-  authenticateUser, registerCustomer, createShopkeeperAccount, deactivateShopkeeper, getAllShopkeepers 
+  authenticateUser, registerCustomer, createShopkeeperAccount
 } from './services/auth';
 import {
   createOrder as createOrderApi,
@@ -227,7 +227,7 @@ export default function WebApp() {
         setPrepProgress(prev => {
           if (prev >= 100) {
             clearInterval(interval);
-            setCurrentOrder(o => o ? { ...o, status: 'Food Ready' } : null);
+            setCurrentOrder(o => o ? { ...o, status: 'Ready for Pickup' } : null);
             return 100;
           }
           return prev + 10;
@@ -321,12 +321,13 @@ export default function WebApp() {
 
   const currentCheckoutShop = cart.length > 0 ? shops.find(s => s.id === cart[0].shopId) || shops[0] : shops[0];
 
-  // AUTH SUBMISSION WITH SUPER ADMIN REDIRECT
+  // AUTH SUBMISSION WITH STRICT CASE-SENSITIVE SUPER ADMIN REDIRECT
   const handleAuthSubmit = async (e?: React.FormEvent, directEmail?: string, directPassword?: string, directShopId?: string) => {
     if (e) e.preventDefault();
     setAuthError(null);
 
-    const targetEmail = (directEmail || authEmail || '').trim().toLowerCase();
+    // Pass raw credentials without trimming or lowercasing beforehand for Super Admin check
+    const targetEmail = directEmail || authEmail;
     const targetPassword = directPassword || authPassword;
 
     if (!targetEmail || !targetPassword) {
@@ -452,6 +453,16 @@ export default function WebApp() {
     }
   };
 
+  // SHOPKEEPER "FOOD IS READY" ACTION (Moves Accepted -> Ready for Pickup)
+  const handleShopkeeperFoodReady = async (orderIdToReady: string) => {
+    await markFoodReadyApi(orderIdToReady);
+    if (currentOrder && currentOrder.id === orderIdToReady) {
+      const updated: Order = { ...currentOrder, status: 'Ready for Pickup' };
+      setCurrentOrder(updated);
+      setOrdersHistory(prev => prev.map(o => o.id === orderIdToReady ? updated : o));
+    }
+  };
+
   // SHOPKEEPER REJECT/CANCEL PENDING ORDER
   const handleShopkeeperRejectOrder = async (orderIdToReject: string) => {
     if (confirm(`Reject/Cancel Order #${orderIdToReject}?`)) {
@@ -561,10 +572,10 @@ export default function WebApp() {
         return;
       }
 
-      if (currentOrder.status !== 'Food Ready') {
+      if (currentOrder.status !== 'Ready for Pickup') {
         setScanResult({
           success: false,
-          message: `Cannot Handover: Order #${currentOrder.id} is currently '${currentOrder.status}'. It must be marked 'Food Ready' first.`,
+          message: `Cannot Handover: Order #${currentOrder.id} is currently '${currentOrder.status}'. It must be marked 'Ready for Pickup' first.`,
           paymentStatus: currentOrder.paymentStatus,
           paymentMethod: currentOrder.paymentMethod,
           transactionId: currentOrder.transactionId
@@ -651,11 +662,10 @@ export default function WebApp() {
     }
   };
 
-  // SUPER ADMIN 2: DELETE CANTEEN SHOP (WITH PENDING ORDER SAFEGUARD)
+  // SUPER ADMIN 2: DELETE CANTEEN SHOP (WITH ACTIVE ORDER SAFEGUARD)
   const handleDeleteShop = async (shopId: string, shopName: string) => {
-    // Safeguard: Check if there are active pending / unfulfilled orders for this shop
     const activePendingOrders = ordersHistory.filter(o => 
-      o.shopId === shopId && ['Pending', 'Accepted', 'Food Ready'].includes(o.status)
+      o.shopId === shopId && ['Pending', 'Accepted', 'Ready for Pickup'].includes(o.status)
     );
 
     if (activePendingOrders.length > 0) {
@@ -712,7 +722,7 @@ export default function WebApp() {
     }
   };
 
-  // BUG 2 FIX: SHOPKEEPER ADD OR EDIT FOOD ITEM (EXPLICIT SHOP_ID MATCH)
+  // SHOPKEEPER ADD OR EDIT FOOD ITEM
   const handleSaveFoodItem = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -751,7 +761,7 @@ export default function WebApp() {
     }
   };
 
-  // SHOPKEEPER 4: DELETE FOOD ITEM
+  // SHOPKEEPER DELETE FOOD ITEM
   const handleDeleteItem = async (id: string) => {
     const itemToDelete = menuItems.find(i => i.id === id);
     const itemName = itemToDelete ? itemToDelete.name : 'this item';
@@ -835,7 +845,7 @@ export default function WebApp() {
     setLastSyncTime(new Date().toLocaleTimeString());
   };
 
-  // SALES & REVENUE ANALYTICS CALCULATIONS
+  // SALES ANALYTICS CALCULATIONS
   const targetShopOrders = ordersHistory.filter(o => currentUser?.role === 'super_admin' || o.shopId === activeShopForOwner.id);
   const totalSalesRevenue = targetShopOrders.filter(o => o.paymentStatus === 'Paid').reduce((sum, o) => sum + o.grandTotal, 0);
   const paidOrdersCount = targetShopOrders.filter(o => o.paymentStatus === 'Paid').length;
@@ -1146,7 +1156,7 @@ export default function WebApp() {
           {currentUser.role === 'super_admin' && (
             <span className="bg-purple-600/20 text-purple-400 border border-purple-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-2">
               <Shield className="w-4 h-4 text-purple-400" />
-              <span>{t('superAdminDashboard', currentLang)}</span>
+              <span>{t('superAdminDashboard', currentLang)} (Strict Canteen Shop Add/Delete Scope)</span>
             </span>
           )}
 
@@ -1447,7 +1457,7 @@ export default function WebApp() {
           </div>
         )}
 
-        {/* CUSTOMER DASHBOARD: LIVE ORDER & ORDER CANCELLATION */}
+        {/* CUSTOMER DASHBOARD: LIVE ORDER TRACKING & READY FOR PICKUP STATUS */}
         {currentUser.role === 'customer' && activeTab === 'tracking' && currentOrder && (
           <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
             <div className={`p-6 rounded-3xl border text-center space-y-3 relative overflow-hidden ${
@@ -1480,15 +1490,18 @@ export default function WebApp() {
                 {currentOrder.status === 'Completed' ? '✅ Food Handed Over!' : 
                  currentOrder.status === 'Cancelled' ? '❌ Order Cancelled' :
                  currentOrder.status === 'Pending' ? '⏳ Awaiting Shopkeeper Acceptance...' :
+                 currentOrder.status === 'Ready for Pickup' ? '🔔 Your order is ready for pickup!' :
                  currentOrder.status}
               </h2>
               
               <p className="text-xs text-slate-400">
                 {currentOrder.status === 'Pending' 
                   ? 'Your order is pending acceptance. You can cancel now if needed.' 
+                  : currentOrder.status === 'Ready for Pickup'
+                  ? 'Please show your QR code to the shopkeeper at the counter to collect your food.'
                   : currentOrder.status === 'Cancelled'
                   ? `Cancelled by ${currentOrder.cancelledBy || 'user'} at ${currentOrder.cancelledAt || ''}`
-                  : 'Show your unique QR code at counter when status is Food Ready'}
+                  : 'Kitchen is preparing your meal.'}
               </p>
 
               {currentOrder.status === 'Pending' && (
@@ -1508,7 +1521,7 @@ export default function WebApp() {
                   className={`h-full rounded-full transition-all duration-500 ${
                     currentOrder.status === 'Cancelled' ? 'bg-red-500' : 'bg-gradient-to-r from-blue-600 to-emerald-400'
                   }`} 
-                  style={{ width: `${currentOrder.status === 'Pending' ? 15 : currentOrder.status === 'Accepted' ? 45 : currentOrder.status === 'Food Ready' ? 90 : currentOrder.status === 'Cancelled' ? 100 : 100}%` }}
+                  style={{ width: `${currentOrder.status === 'Pending' ? 15 : currentOrder.status === 'Accepted' ? 50 : currentOrder.status === 'Ready for Pickup' ? 90 : currentOrder.status === 'Cancelled' ? 100 : 100}%` }}
                 />
               </div>
             </div>
@@ -1528,7 +1541,7 @@ export default function WebApp() {
                 </div>
 
                 <div className="flex items-start gap-4 relative z-10">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Accepted', 'Food Ready', 'Completed'].includes(currentOrder.status) ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>2</div>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Accepted', 'Ready for Pickup', 'Completed'].includes(currentOrder.status) ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>2</div>
                   <div>
                     <h4 className="font-bold text-sm">Order Accepted & Preparing</h4>
                     <p className="text-xs text-slate-400">Accepted by canteen • Cancellation locked</p>
@@ -1536,9 +1549,9 @@ export default function WebApp() {
                 </div>
 
                 <div className="flex items-start gap-4 relative z-10">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Food Ready', 'Completed'].includes(currentOrder.status) ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-400'}`}>3</div>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Ready for Pickup', 'Completed'].includes(currentOrder.status) ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-400'}`}>3</div>
                   <div>
-                    <h4 className="font-bold text-sm">Food Ready (Scan QR for Handover)</h4>
+                    <h4 className="font-bold text-sm">Ready for Pickup 🔔</h4>
                     <p className="text-xs text-slate-400">Show QR code below to shopkeeper</p>
                   </div>
                 </div>
@@ -1571,11 +1584,11 @@ export default function WebApp() {
           </div>
         )}
 
-        {/* SHOPKEEPER & SUPER ADMIN DASHBOARD */}
-        {(currentUser.role === 'shopkeeper' || currentUser.role === 'super_admin') && (
+        {/* SHOPKEEPER DASHBOARD */}
+        {currentUser.role === 'shopkeeper' && (
           <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
             
-            {/* INCOMING PENDING & ACCEPTED ORDERS */}
+            {/* INCOMING ORDERS & FOOD IS READY ACTION */}
             <div className={`p-6 rounded-3xl border space-y-4 ${
               theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
             }`}>
@@ -1607,6 +1620,7 @@ export default function WebApp() {
                     <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
                       currentOrder.status === 'Pending' ? 'bg-yellow-500/20 text-yellow-500 border-yellow-500/40 animate-pulse' :
                       currentOrder.status === 'Accepted' ? 'bg-blue-600/20 text-blue-500 border-blue-600/40' :
+                      currentOrder.status === 'Ready for Pickup' ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/40' :
                       currentOrder.status === 'Cancelled' ? 'bg-red-500/20 text-red-500 border-red-500/40' :
                       'bg-emerald-500/20 text-emerald-500 border-emerald-500/40'
                     }`}>
@@ -1647,16 +1661,11 @@ export default function WebApp() {
 
                     {currentOrder.status === 'Accepted' && (
                       <button 
-                        onClick={async () => {
-                          if (currentOrder) {
-                            await markFoodReadyApi(currentOrder.id);
-                            setCurrentOrder(prev => prev ? { ...prev, status: 'Food Ready' } : null);
-                          }
-                        }}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2"
+                        onClick={() => handleShopkeeperFoodReady(currentOrder.id)}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/20"
                       >
                         <Bell className="w-4 h-4" />
-                        <span>Mark "Food Ready 🔔"</span>
+                        <span>Food is Ready 🔔 (Mark Ready for Pickup)</span>
                       </button>
                     )}
 
@@ -1678,179 +1687,231 @@ export default function WebApp() {
               )}
             </div>
 
-            {/* SHOPKEEPER FOOD MENU MANAGEMENT WITH BUG 2 FIX */}
-            {currentUser.role === 'shopkeeper' && (
-              <div className={`p-6 rounded-3xl border space-y-4 ${
-                theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
-              }`}>
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <div>
-                    <h3 className="font-extrabold font-heading text-base">{t('foodMenuManagement', currentLang)} ({activeShopForOwner.name})</h3>
-                    <p className="text-xs text-slate-400">Items added here appear immediately on Customer Dashboard</p>
-                  </div>
-
-                  <button 
-                    onClick={openAddItemModal}
-                    className="bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>{t('addNewItem', currentLang)}</span>
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {menuItems.filter(i => currentUser?.role === 'super_admin' || i.shopId === activeShopForOwner.id || i.shopId === currentUser?.shopId).map(item => (
-                    <div key={item.id} className={`p-4 rounded-2xl flex justify-between gap-3 border transition ${
-                      item.isSpecial ? 'border-amber-400/80 shadow-md shadow-amber-400/10' :
-                      theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
-                    }`}>
-                      <div className="flex gap-3">
-                        <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className="w-16 h-16 rounded-xl object-cover" />
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-xs">{item.name}</h4>
-                            {item.isSpecial && (
-                              <span className="bg-amber-400/20 text-amber-500 border border-amber-400/40 text-[9px] font-extrabold px-1.5 py-0.5 rounded">
-                                🌟 Special
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs font-extrabold text-blue-500">₹{item.price}</p>
-                          <p className="text-[10px] text-slate-400">Slot: {item.availableFrom || '08:00'} - {item.availableUntil || '22:00'}</p>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col justify-between items-end">
-                        <button 
-                          onClick={() => handleToggleSpecial(item.id)}
-                          className={`p-1.5 rounded-lg border text-[10px] font-bold transition flex items-center gap-1 ${
-                            item.isSpecial 
-                              ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md' 
-                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                          }`}
-                        >
-                          <Star className={`w-3 h-3 ${item.isSpecial ? 'fill-slate-950' : ''}`} />
-                          <span>{item.isSpecial ? 'Special' : 'Mark Special'}</span>
-                        </button>
-
-                        <div className="flex items-center gap-1 pt-2">
-                          <button 
-                            onClick={() => openEditItemModal(item)}
-                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteItem(item.id)}
-                            className="p-1.5 bg-red-950/60 hover:bg-red-900 text-red-400 rounded-lg transition"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* DISCOUNT MANAGER */}
+            {/* SHOPKEEPER FOOD MENU MANAGEMENT */}
             <div className={`p-6 rounded-3xl border space-y-4 ${
               theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
             }`}>
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-2">
-                  <Tag className="w-5 h-5 text-emerald-500" />
-                  <h3 className="font-extrabold font-heading text-base">Shop Discount & Sale Offers</h3>
+                <div>
+                  <h3 className="font-extrabold font-heading text-base">{t('foodMenuManagement', currentLang)} ({activeShopForOwner.name})</h3>
+                  <p className="text-xs text-slate-400">Items added here appear immediately on Customer Dashboard</p>
                 </div>
 
                 <button 
-                  onClick={() => setIsDiscountModalOpen(true)}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg"
+                  onClick={openAddItemModal}
+                  className="bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Create Discount Offer</span>
+                  <span>{t('addNewItem', currentLang)}</span>
                 </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {discounts.filter(d => currentUser?.role === 'super_admin' || d.shopId === activeShopForOwner.id).map(disc => (
-                  <div key={disc.id} className={`p-4 rounded-2xl border flex items-center justify-between ${
-                    theme === 'dark' ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                {menuItems.filter(i => i.shopId === activeShopForOwner.id || i.shopId === currentUser?.shopId).map(item => (
+                  <div key={item.id} className={`p-4 rounded-2xl flex justify-between gap-3 border transition ${
+                    item.isSpecial ? 'border-amber-400/80 shadow-md shadow-amber-400/10' :
+                    theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
                   }`}>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="bg-emerald-500/20 text-emerald-500 font-extrabold text-xs px-2 py-0.5 rounded">
-                          {disc.code}
-                        </span>
-                        <h4 className="font-bold text-xs">{disc.title}</h4>
+                    <div className="flex gap-3">
+                      <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className="w-16 h-16 rounded-xl object-cover" />
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-xs">{item.name}</h4>
+                          {item.isSpecial && (
+                            <span className="bg-amber-400/20 text-amber-500 border border-amber-400/40 text-[9px] font-extrabold px-1.5 py-0.5 rounded">
+                              🌟 Special
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs font-extrabold text-blue-500">₹{item.price}</p>
+                        <p className="text-[10px] text-slate-400">Slot: {item.availableFrom || '08:00'} - {item.availableUntil || '22:00'}</p>
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        Value: {disc.type === 'percentage' ? `${disc.value}% OFF` : `₹${disc.value} OFF`} • Scope: {disc.appliesTo}
-                      </p>
                     </div>
 
-                    <button 
-                      onClick={() => handleDeleteDiscount(disc.id)}
-                      className="p-1.5 bg-red-950/60 hover:bg-red-900 text-red-400 rounded-lg text-xs"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex flex-col justify-between items-end">
+                      <button 
+                        onClick={() => handleToggleSpecial(item.id)}
+                        className={`p-1.5 rounded-lg border text-[10px] font-bold transition flex items-center gap-1 ${
+                          item.isSpecial 
+                            ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md' 
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        <Star className={`w-3 h-3 ${item.isSpecial ? 'fill-slate-950' : ''}`} />
+                        <span>{item.isSpecial ? 'Special' : 'Mark Special'}</span>
+                      </button>
+
+                      <div className="flex items-center gap-1 pt-2">
+                        <button 
+                          onClick={() => openEditItemModal(item)}
+                          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteItem(item.id)}
+                          className="p-1.5 bg-red-950/60 hover:bg-red-900 text-red-400 rounded-lg transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 ))}
-              </div>
-            </div>
-
-            {/* SALES ANALYTICS */}
-            <div className={`p-6 rounded-3xl border space-y-6 ${
-              theme === 'dark' ? 'glass-panel border-emerald-500/40 bg-slate-900' : 'bg-white border-slate-200 shadow-xl'
-            }`}>
-              <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-2xl text-emerald-500">
-                    <TrendingUp className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-extrabold font-heading">{t('salesAnalytics', currentLang)}</h3>
-                    <p className="text-xs text-slate-400">All-Canteens Real-Time Revenue & Payment Audit</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <span className="text-xs text-slate-400">{t('totalRevenue', currentLang)}</span>
-                  <p className="font-heading font-extrabold text-2xl text-emerald-500">₹{totalSalesRevenue}</p>
-                  <p className="text-[11px] text-slate-400">{paidOrdersCount} Paid Orders</p>
-                </div>
-
-                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <span className="text-xs text-slate-400">{t('totalOrders', currentLang)}</span>
-                  <p className="font-heading font-extrabold text-2xl text-blue-500">{targetShopOrders.length}</p>
-                  <p className="text-[11px] text-slate-400">{completedHandoverCount} Handed Over</p>
-                </div>
-
-                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <span className="text-xs text-slate-400">Paid vs Unpaid</span>
-                  <p className="font-heading font-extrabold text-xl text-emerald-500">
-                    {paidOrdersCount} <span className="text-xs text-slate-400">Paid</span> / {unpaidOrdersCount} <span className="text-xs text-red-500">Unpaid</span>
-                  </p>
-                </div>
-
-                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <span className="text-xs text-slate-400">Cancellations</span>
-                  <p className="font-heading font-extrabold text-2xl text-red-500">{cancelledOrdersCount}</p>
-                  <p className="text-[11px] text-slate-400">Cancelled before preparation</p>
-                </div>
               </div>
             </div>
 
           </div>
         )}
 
+        {/* SUPER ADMIN DASHBOARD: STRICT CANTEEN SHOP CREATION & DELETION ONLY */}
+        {currentUser.role === 'super_admin' && (
+          <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
+            <div className={`p-6 rounded-3xl border space-y-4 ${
+              theme === 'dark' ? 'glass-panel border-purple-500/40 bg-slate-900' : 'bg-white border-purple-200 shadow-xl'
+            }`}>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400">
+                    <Shield className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-extrabold font-heading">Super Admin Control Panel</h2>
+                    <p className="text-xs text-slate-400">Strict Permission Scope: <span className="text-purple-400 font-bold">Canteen Shop Creation & Deletion Only</span></p>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setIsAddShopkeeperOpen(true)}
+                  className="bg-purple-600 hover:bg-purple-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-purple-600/30 transition"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add New Canteen Shop</span>
+                </button>
+              </div>
+            </div>
+
+            {/* SUPER ADMIN CANTEEN SHOPS LIST WITH DELETE ACTION */}
+            <div className={`p-6 rounded-3xl border space-y-4 ${
+              theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+            }`}>
+              <h3 className="font-extrabold font-heading text-base border-b border-slate-800 pb-3 flex items-center gap-2">
+                <Store className="w-5 h-5 text-purple-400" />
+                <span>Registered Campus Canteens ({shops.length})</span>
+              </h3>
+
+              <div className="space-y-3">
+                {shops.map(s => (
+                  <div key={s.id} className={`p-4 rounded-2xl flex items-center justify-between border ${
+                    theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-sm">{s.name}</h4>
+                        <span className="bg-purple-500/20 text-purple-400 text-[10px] font-bold px-2 py-0.5 rounded-md border border-purple-500/30 font-mono">
+                          {s.id}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 font-mono">Owner Email: {s.email} • UPI: {s.upiId}</p>
+                    </div>
+
+                    <button 
+                      onClick={() => handleDeleteShop(s.id, s.name)}
+                      className="bg-red-950/60 hover:bg-red-900 border border-red-500/30 text-red-400 font-bold px-3.5 py-2 rounded-xl text-xs transition flex items-center gap-1.5"
+                      title="Delete Canteen Shop (Protected against active unfulfilled orders)"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Shop</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
       </main>
 
-      {/* MODALS */}
+      {/* SUPER ADMIN MODAL (ADD NEW CANTEEN SHOP) */}
+      {isAddShopkeeperOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
+          <div className={`w-full max-w-md p-6 rounded-3xl space-y-4 shadow-2xl relative border ${
+            theme === 'dark' ? 'glass-panel border-purple-500/40 text-white' : 'bg-white border-purple-200 text-slate-900'
+          }`}>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="font-extrabold font-heading text-lg">Add New Canteen Shop</h3>
+              <button onClick={() => setIsAddShopkeeperOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
+            </div>
+
+            <form onSubmit={handleAddShopkeeper} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold">Shopkeeper Full Name</label>
+                <input 
+                  type="text" 
+                  required
+                  value={newShopkeeperName}
+                  onChange={(e) => setNewShopkeeperName(e.target.value)}
+                  placeholder="e.g. Anand Kumar"
+                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-purple-500 ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold">Shopkeeper Email Address</label>
+                <input 
+                  type="email" 
+                  required
+                  value={newShopkeeperEmail}
+                  onChange={(e) => setNewShopkeeperEmail(e.target.value)}
+                  placeholder="e.g. owner@hunger.com"
+                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-purple-500 ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold">New Canteen Shop Name</label>
+                <input 
+                  type="text" 
+                  required
+                  value={newShopName}
+                  onChange={(e) => setNewShopName(e.target.value)}
+                  placeholder="e.g. Campus Juice & Waffle Bar"
+                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-purple-500 ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold">Canteen Shop ID</label>
+                <input 
+                  type="text" 
+                  required
+                  value={newShopkeeperShopId}
+                  onChange={(e) => setNewShopkeeperShopId(e.target.value)}
+                  placeholder="e.g. shop-waffle"
+                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-purple-500 font-mono ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <button 
+                type="submit"
+                className="w-full bg-purple-600 hover:bg-purple-500 text-white font-extrabold py-3 rounded-2xl text-xs transition shadow-lg shadow-purple-600/30"
+              >
+                Create Canteen Shop & Save to Database
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DISCOUNT & MENU MODALS */}
       {isDiscountModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
           <div className={`w-full max-w-md p-6 rounded-3xl space-y-4 shadow-2xl relative border ${

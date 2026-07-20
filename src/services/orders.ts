@@ -8,7 +8,7 @@ const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-export type OrderStatus = 'Pending' | 'Accepted' | 'Food Ready' | 'Completed' | 'Cancelled';
+export type OrderStatus = 'Pending' | 'Accepted' | 'Ready for Pickup' | 'Completed' | 'Cancelled';
 export type PaymentStatus = 'Paid' | 'Unpaid' | 'Pending' | 'Refund Pending' | 'Refunded';
 export type PaymentMethod = 'Online UPI' | 'Cash on Handover';
 
@@ -67,7 +67,7 @@ export function subscribeToShopOrders(shopId: string, onChange: (orders: OrderDo
           .from(ORDERS)
           .select('*')
           .eq('shopId', shopId)
-          .in('status', ['Pending', 'Accepted', 'Food Ready']);
+          .in('status', ['Pending', 'Accepted', 'Ready for Pickup']);
         onChange((data as OrderDoc[]) || []);
       }
     )
@@ -171,12 +171,12 @@ export async function cancelOrder(
   }
 }
 
-/** Shop owner action: "Food Ready" button. */
+/** Shop owner action: "Food is Ready" button (Updates status to 'Ready for Pickup'). */
 export async function markFoodReady(orderId: string) {
   await supabase
     .from(ORDERS)
     .update({
-      status: 'Food Ready' as OrderStatus,
+      status: 'Ready for Pickup' as OrderStatus,
       updatedAt: Date.now(),
     })
     .eq('orderId', orderId);
@@ -259,10 +259,10 @@ export async function verifyAndProcessQrHandover(
       };
     }
 
-    if (typedOrder.status !== 'Food Ready') {
+    if (typedOrder.status !== 'Ready for Pickup') {
       return { 
         success: false, 
-        message: `Order #${targetOrderId} is currently '${typedOrder.status}'. It must be marked 'Food Ready' before handover.`,
+        message: `Order #${targetOrderId} is currently '${typedOrder.status}'. It must be marked 'Ready for Pickup' before handover.`,
         paymentStatus: typedOrder.paymentStatus,
         paymentMethod: typedOrder.paymentMethod,
         transactionId: typedOrder.transactionId
