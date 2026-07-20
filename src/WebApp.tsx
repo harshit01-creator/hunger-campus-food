@@ -748,7 +748,9 @@ export default function WebApp() {
             <div className="w-16 h-16 logo-badge mx-auto mb-2">
               <img src={kprLogo} alt="Hunger Logo" className="w-full h-full object-contain" />
             </div>
-            <h1 className="font-heading font-extrabold text-3xl sm:text-4xl gradient-text">{t('appTitle', currentLang)}</h1>
+            <h1 className={`font-heading font-extrabold text-3xl sm:text-4xl ${
+              theme === 'dark' ? 'text-blue-400' : 'text-blue-600'
+            }`}>{t('appTitle', currentLang)}</h1>
             <p className="text-xs text-slate-400">{t('appSubtitle', currentLang)}</p>
           </div>
 
