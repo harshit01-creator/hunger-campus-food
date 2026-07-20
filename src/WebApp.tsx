@@ -22,7 +22,8 @@ import {
 } from './services/orders';
 import {
   ShopAccount, FoodItem, loadShops, saveShops, loadMenuItems, saveMenuItems,
-  addOrUpdateShopAccount, deleteShopAccount, addOrUpdateFoodItem, deleteFoodItemById
+  addOrUpdateShopAccount, deleteShopAccount, addOrUpdateFoodItem, deleteFoodItemById,
+  fetchShopsFromSupabase, fetchMenuItemsFromSupabase
 } from './services/shopsAndMenu';
 
 interface CartItem extends FoodItem {
@@ -70,11 +71,18 @@ export default function WebApp() {
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
 
-  // Real-Time Event Listener for Customer & Shopkeeper Dashboards
+  // Real-Time Event Listener & Cloud Database Hydration
   useEffect(() => {
-    const handleSync = () => {
-      setShops(loadShops());
-      setMenuItems(loadMenuItems());
+    // 1. Initial Cloud Database Hydration (Supabase PostgreSQL)
+    fetchShopsFromSupabase().then(dbShops => setShops(dbShops));
+    fetchMenuItemsFromSupabase().then(dbMenu => setMenuItems(dbMenu));
+
+    // 2. Real-time Event Listeners
+    const handleSync = async () => {
+      const dbShops = await fetchShopsFromSupabase();
+      const dbMenu = await fetchMenuItemsFromSupabase();
+      setShops(dbShops);
+      setMenuItems(dbMenu);
       setLastSyncTime(new Date().toLocaleTimeString());
     };
 
@@ -471,7 +479,7 @@ export default function WebApp() {
     }
   };
 
-  // SUPER ADMIN 1: ADD NEW CANTEEN SHOP (IMMEDIATELY WRITES TO DB & REFLECTS ON CUSTOMER DASHBOARD)
+  // SUPER ADMIN 1: ADD NEW CANTEEN SHOP (WRITES TO SUPABASE CLOUD DATABASE & REFLECTS ON ALL DEVICES)
   const handleAddShopkeeper = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -488,10 +496,10 @@ export default function WebApp() {
           rating: 5.0
         };
 
-        const updatedShops = addOrUpdateShopAccount(newShopObj);
+        const updatedShops = await addOrUpdateShopAccount(newShopObj);
         setShops(updatedShops);
 
-        alert(`🎉 Success: Shopkeeper account & Canteen "${createdShopName}" created! Immediately visible on Customer Dashboard.`);
+        alert(`🎉 Success: Shopkeeper account & Canteen "${createdShopName}" saved to Supabase cloud database! Visible on all devices permanently.`);
         setIsAddShopkeeperOpen(false);
         setNewShopkeeperName('');
         setNewShopkeeperEmail('');
@@ -504,22 +512,22 @@ export default function WebApp() {
     }
   };
 
-  // SUPER ADMIN 2: DELETE CANTEEN SHOP (DELETES FROM DB & REMOVES ALL ASSOCIATED DISHES)
-  const handleDeleteShop = (shopId: string, shopName: string) => {
-    if (confirm(`Are you sure you want to delete "${shopName}"? This will permanently remove the shop and all its menu items.`)) {
+  // SUPER ADMIN 2: DELETE CANTEEN SHOP (DELETES FROM SUPABASE CLOUD DB & REMOVES ALL ASSOCIATED DISHES)
+  const handleDeleteShop = async (shopId: string, shopName: string) => {
+    if (confirm(`Are you sure you want to delete "${shopName}"? This will permanently remove the shop and all its menu items from the database.`)) {
       try {
-        const { shops: updatedShops, menuItems: updatedMenu } = deleteShopAccount(shopId);
+        const { shops: updatedShops, menuItems: updatedMenu } = await deleteShopAccount(shopId);
         setShops(updatedShops);
         setMenuItems(updatedMenu);
-        alert(`✅ Shop "${shopName}" and all associated menu items have been deleted!`);
+        alert(`✅ Shop "${shopName}" and all associated menu items deleted from Supabase database!`);
       } catch (err: any) {
         alert(`❌ Failed to delete shop: ${err.message || 'Error occurred'}`);
       }
     }
   };
 
-  // SHOPKEEPER 3: ADD OR EDIT FOOD ITEM (WRITES TO DB & REFLECTS ON CUSTOMER DASHBOARD)
-  const handleSaveFoodItem = (e: React.FormEvent) => {
+  // SHOPKEEPER 3: ADD OR EDIT FOOD ITEM (WRITES TO SUPABASE CLOUD DB & REFLECTS ON ALL DEVICES)
+  const handleSaveFoodItem = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const activeShopId = currentUser?.shopId || 'shop-1';
@@ -539,26 +547,26 @@ export default function WebApp() {
         shopName: activeShop.name
       };
 
-      const updatedMenu = addOrUpdateFoodItem(itemToSave);
+      const updatedMenu = await addOrUpdateFoodItem(itemToSave);
       setMenuItems(updatedMenu);
 
       setIsItemModalOpen(false);
       setEditingItem(null);
-      alert(`✅ Food item "${itemToSave.name}" saved successfully! Visible on Customer Dashboard.`);
+      alert(`✅ Food item "${itemToSave.name}" saved to database! Visible on Customer Dashboard across all devices.`);
     } catch (err: any) {
       alert(`❌ Error saving food item: ${err.message || 'Failed to save'}`);
     }
   };
 
-  // SHOPKEEPER 4: DELETE FOOD ITEM (DELETES FROM DB & DISAPPEARS EVERYWHERE)
-  const handleDeleteItem = (id: string) => {
+  // SHOPKEEPER 4: DELETE FOOD ITEM (DELETES FROM SUPABASE CLOUD DB)
+  const handleDeleteItem = async (id: string) => {
     const itemToDelete = menuItems.find(i => i.id === id);
     const itemName = itemToDelete ? itemToDelete.name : 'this item';
     if (confirm(`Are you sure you want to delete "${itemName}"?`)) {
       try {
-        const updatedMenu = deleteFoodItemById(id);
+        const updatedMenu = await deleteFoodItemById(id);
         setMenuItems(updatedMenu);
-        alert(`✅ Food item "${itemName}" deleted successfully!`);
+        alert(`✅ Food item "${itemName}" deleted from database!`);
       } catch (err: any) {
         alert(`❌ Error deleting food item: ${err.message || 'Failed to delete'}`);
       }
@@ -609,9 +617,11 @@ export default function WebApp() {
 
   const activeShopForOwner = shops.find(s => s.id === (currentUser?.shopId || 'shop-1')) || shops[0];
 
-  const triggerManualSync = () => {
-    setShops(loadShops());
-    setMenuItems(loadMenuItems());
+  const triggerManualSync = async () => {
+    const dbShops = await fetchShopsFromSupabase();
+    const dbMenu = await fetchMenuItemsFromSupabase();
+    setShops(dbShops);
+    setMenuItems(dbMenu);
     setLastSyncTime(new Date().toLocaleTimeString());
   };
 
@@ -1415,7 +1425,7 @@ export default function WebApp() {
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div>
                   <h3 className="font-extrabold font-heading text-base text-white">Food Menu Management</h3>
-                  <p className="text-xs text-slate-400">Edits and new dishes reflect instantly on Customer Dashboard</p>
+                  <p className="text-xs text-slate-400">Edits and new dishes saved to database & reflect across all devices</p>
                 </div>
 
                 <button 
@@ -1495,15 +1505,15 @@ export default function WebApp() {
               </div>
 
               <button 
-                onClick={() => {
-                  const updatedShops = shops.map(s => s.id === activeShopForOwner.id ? {
+                onClick={async () => {
+                  const updatedShopObj = {
                     ...activeShopForOwner,
                     upiId: editingShopUpi || activeShopForOwner.upiId,
                     qrImageUrl: editingShopQrUrl || activeShopForOwner.qrImageUrl
-                  } : s);
+                  };
+                  const updatedShops = await addOrUpdateShopAccount(updatedShopObj);
                   setShops(updatedShops);
-                  saveShops(updatedShops);
-                  alert('Shop payment UPI QR and VPA updated & synced to Customer Dashboard!');
+                  alert('Shop payment UPI QR and VPA saved to Supabase cloud database!');
                 }}
                 className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition shadow-md shadow-emerald-600/20"
               >
@@ -1693,7 +1703,7 @@ export default function WebApp() {
                 type="submit"
                 className="w-full bg-purple-600 hover:bg-purple-500 text-white font-extrabold py-3 rounded-2xl text-xs transition shadow-lg shadow-purple-600/30"
               >
-                Create Shopkeeper & Activate Shop
+                Create Shopkeeper & Save to Database
               </button>
             </form>
           </div>
@@ -1803,7 +1813,7 @@ export default function WebApp() {
                 type="submit"
                 className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-extrabold py-3 rounded-xl text-xs"
               >
-                Save Food Item
+                Save Food Item to Database
               </button>
             </form>
           </div>

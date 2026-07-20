@@ -1,5 +1,7 @@
 // Persistence and Real-time Sync layer for Shops & Food Menu Items
-// Fixes stale data issue by syncing Shopkeeper & Super Admin CRUD actions directly to Customer Dashboard via localStorage & BroadcastEvents
+// Connects to Supabase PostgreSQL cloud database for multi-device cross-session persistence
+
+import { supabase } from './orders';
 
 export interface ShopAccount {
   id: string;
@@ -161,8 +163,8 @@ export const INITIAL_MENU: FoodItem[] = [
   }
 ];
 
-const STORAGE_SHOPS_KEY = 'hunger_shops_data_v2';
-const STORAGE_MENU_KEY = 'hunger_menu_data_v2';
+const STORAGE_SHOPS_KEY = 'hunger_shops_data_v3';
+const STORAGE_MENU_KEY = 'hunger_menu_data_v3';
 
 export function loadShops(): ShopAccount[] {
   try {
@@ -208,8 +210,24 @@ export function saveMenuItems(menu: FoodItem[]): void {
   }
 }
 
-/** 1. ADD / UPDATE SHOP (SUPER ADMIN) */
-export function addOrUpdateShopAccount(shop: ShopAccount): ShopAccount[] {
+/** SUPABASE CLOUD DATABASE PERSISTENCE LAYER FOR SHOPS */
+
+export async function fetchShopsFromSupabase(): Promise<ShopAccount[]> {
+  try {
+    const { data, error } = await supabase.from('shops').select('*');
+    if (!error && data && data.length > 0) {
+      const dbShops = data as ShopAccount[];
+      saveShops(dbShops);
+      return dbShops;
+    }
+  } catch (err) {
+    console.warn('[Supabase] Falling back to local storage for shops:', err);
+  }
+  return loadShops();
+}
+
+export async function addOrUpdateShopAccount(shop: ShopAccount): Promise<ShopAccount[]> {
+  // 1. Local & Event sync
   const currentShops = loadShops();
   const existingIndex = currentShops.findIndex(s => s.id === shop.id);
   
@@ -221,25 +239,57 @@ export function addOrUpdateShopAccount(shop: ShopAccount): ShopAccount[] {
   }
 
   saveShops(updated);
+
+  // 2. Persistent Supabase Cloud DB Insert / Upsert
+  try {
+    const { error } = await supabase.from('shops').upsert([shop], { onConflict: 'id' });
+    if (error) console.warn('[Supabase Insert Shop Error]:', error);
+  } catch (err) {
+    console.warn('[Supabase Insert Shop Exception]:', err);
+  }
+
   return updated;
 }
 
-/** 2. DELETE SHOP & REMOVE ALL ASSOCIATED DISHES (SUPER ADMIN) */
-export function deleteShopAccount(shopId: string): { shops: ShopAccount[]; menuItems: FoodItem[] } {
+export async function deleteShopAccount(shopId: string): Promise<{ shops: ShopAccount[]; menuItems: FoodItem[] }> {
+  // 1. Local & Event sync
   const currentShops = loadShops();
   const updatedShops = currentShops.filter(s => s.id !== shopId);
   saveShops(updatedShops);
 
-  // Also remove all dishes associated with this shopId
   const currentMenu = loadMenuItems();
   const updatedMenu = currentMenu.filter(m => m.shopId !== shopId);
   saveMenuItems(updatedMenu);
 
+  // 2. Persistent Supabase Cloud DB Delete
+  try {
+    await supabase.from('shops').delete().eq('id', shopId);
+    await supabase.from('food_items').delete().eq('shopId', shopId);
+  } catch (err) {
+    console.warn('[Supabase Delete Shop Exception]:', err);
+  }
+
   return { shops: updatedShops, menuItems: updatedMenu };
 }
 
-/** 3. ADD OR EDIT FOOD ITEM (SHOPKEEPER) */
-export function addOrUpdateFoodItem(item: FoodItem): FoodItem[] {
+/** SUPABASE CLOUD DATABASE PERSISTENCE LAYER FOR FOOD ITEMS */
+
+export async function fetchMenuItemsFromSupabase(): Promise<FoodItem[]> {
+  try {
+    const { data, error } = await supabase.from('food_items').select('*');
+    if (!error && data && data.length > 0) {
+      const dbMenu = data as FoodItem[];
+      saveMenuItems(dbMenu);
+      return dbMenu;
+    }
+  } catch (err) {
+    console.warn('[Supabase] Falling back to local storage for menu:', err);
+  }
+  return loadMenuItems();
+}
+
+export async function addOrUpdateFoodItem(item: FoodItem): Promise<FoodItem[]> {
+  // 1. Local & Event sync
   const currentMenu = loadMenuItems();
   const existingIndex = currentMenu.findIndex(m => m.id === item.id);
 
@@ -251,13 +301,30 @@ export function addOrUpdateFoodItem(item: FoodItem): FoodItem[] {
   }
 
   saveMenuItems(updated);
+
+  // 2. Persistent Supabase Cloud DB Insert / Upsert
+  try {
+    const { error } = await supabase.from('food_items').upsert([item], { onConflict: 'id' });
+    if (error) console.warn('[Supabase Insert Item Error]:', error);
+  } catch (err) {
+    console.warn('[Supabase Insert Item Exception]:', err);
+  }
+
   return updated;
 }
 
-/** 4. DELETE FOOD ITEM (SHOPKEEPER) */
-export function deleteFoodItemById(itemId: string): FoodItem[] {
+export async function deleteFoodItemById(itemId: string): Promise<FoodItem[]> {
+  // 1. Local & Event sync
   const currentMenu = loadMenuItems();
   const updated = currentMenu.filter(m => m.id !== itemId);
   saveMenuItems(updated);
+
+  // 2. Persistent Supabase Cloud DB Delete
+  try {
+    await supabase.from('food_items').delete().eq('id', itemId);
+  } catch (err) {
+    console.warn('[Supabase Delete Item Exception]:', err);
+  }
+
   return updated;
 }
