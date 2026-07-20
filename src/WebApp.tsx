@@ -92,8 +92,8 @@ export default function WebApp() {
 
   // Auth Form State
   const [authTab, setAuthTab] = useState<'customer' | 'shopkeeper'>('customer');
-  const [authEmail, setAuthEmail] = useState('student@hunger.com');
-  const [authPassword, setAuthPassword] = useState('password123');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Menu Editor Modal State
@@ -248,8 +248,8 @@ export default function WebApp() {
     if (e) e.preventDefault();
     setAuthError(null);
 
-    const targetEmail = directEmail || authEmail || 'student@hunger.com';
-    const targetPassword = directPassword || authPassword || 'password123';
+    const targetEmail = directEmail || authEmail;
+    const targetPassword = directPassword || authPassword;
 
     const res = await authenticateUser(targetEmail, targetPassword, authTab);
     if (res.success && res.user) {
@@ -615,7 +615,8 @@ export default function WebApp() {
             <button 
               onClick={() => {
                 setAuthTab('customer');
-                setAuthEmail('student@hunger.com');
+                setAuthEmail('');
+                setAuthPassword('');
               }}
               className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${authTab === 'customer' ? 'bg-blue-700 text-white shadow-lg shadow-blue-700/25' : 'text-slate-400 hover:text-white'}`}
             >
@@ -624,7 +625,8 @@ export default function WebApp() {
             <button 
               onClick={() => {
                 setAuthTab('shopkeeper');
-                setAuthEmail('canteen@hunger.com');
+                setAuthEmail('');
+                setAuthPassword('');
               }}
               className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${authTab === 'shopkeeper' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/25' : 'text-slate-400 hover:text-white'}`}
             >
@@ -647,7 +649,7 @@ export default function WebApp() {
                 required
                 value={authEmail}
                 onChange={(e) => setAuthEmail(e.target.value)}
-                placeholder={authTab === 'shopkeeper' ? 'canteen@hunger.com' : 'student@hunger.com'}
+                placeholder="Enter your email address..."
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
               />
             </div>
@@ -673,56 +675,6 @@ export default function WebApp() {
               Log In to Hunger & Open {authTab === 'shopkeeper' ? 'Shopkeeper' : 'Customer'} Dashboard &rarr;
             </button>
           </form>
-
-          {/* 1-CLICK DEMO LOGIN PRESETS */}
-          <div className="pt-3 border-t border-slate-800/80 space-y-2">
-            <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5 justify-center">
-              <LogIn className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Hunger 1-Click Test Accounts:</span>
-            </span>
-
-            <div className="grid grid-cols-2 gap-2 text-[11px]">
-              <button 
-                onClick={() => {
-                  setAuthTab('customer');
-                  handleAuthSubmit(undefined, 'student@hunger.com', 'password123');
-                }}
-                className="bg-slate-900 hover:bg-blue-600 hover:text-white text-slate-300 p-2 rounded-xl border border-slate-800 text-center font-bold transition"
-              >
-                👤 Student Customer
-              </button>
-
-              <button 
-                onClick={() => {
-                  setAuthTab('shopkeeper');
-                  handleAuthSubmit(undefined, 'canteen@hunger.com', 'canteen123', 'shop-1');
-                }}
-                className="bg-slate-900 hover:bg-emerald-600 hover:text-white text-slate-300 p-2 rounded-xl border border-slate-800 text-center font-bold transition"
-              >
-                🏪 Shopkeeper (Canteen)
-              </button>
-
-              <button 
-                onClick={() => {
-                  setAuthTab('shopkeeper');
-                  handleAuthSubmit(undefined, 'madrastiffins@hunger.com', 'tiffins123', 'shop-2');
-                }}
-                className="bg-slate-900 hover:bg-emerald-600 hover:text-white text-slate-300 p-2 rounded-xl border border-slate-800 text-center font-bold transition"
-              >
-                🍱 Madras Tiffins
-              </button>
-
-              <button 
-                onClick={() => {
-                  setAuthTab('customer');
-                  handleAuthSubmit(undefined, SUPER_ADMIN_EMAIL, SUPER_ADMIN_PASSWORD);
-                }}
-                className="bg-slate-900 hover:bg-purple-600 hover:text-white text-slate-300 p-2 rounded-xl border border-slate-800 text-center font-bold transition"
-              >
-                🛡️ Super Admin
-              </button>
-            </div>
-          </div>
 
         </div>
       </div>
