@@ -21,7 +21,8 @@ import {
   OrderDoc, PaymentStatus, PaymentMethod, QrHandoverResult
 } from './services/orders';
 import {
-  ShopAccount, FoodItem, loadShops, saveShops, loadMenuItems, saveMenuItems
+  ShopAccount, FoodItem, loadShops, saveShops, loadMenuItems, saveMenuItems,
+  addOrUpdateShopAccount, deleteShopAccount, addOrUpdateFoodItem, deleteFoodItemById
 } from './services/shopsAndMenu';
 
 interface CartItem extends FoodItem {
@@ -470,17 +471,13 @@ export default function WebApp() {
     }
   };
 
-  // SUPER ADMIN SHOP & SHOPKEEPER CREATION (FIX 1: IMMEDIATELY VISIBLE ON CUSTOMER DASHBOARD)
+  // SUPER ADMIN 1: ADD NEW CANTEEN SHOP (IMMEDIATELY WRITES TO DB & REFLECTS ON CUSTOMER DASHBOARD)
   const handleAddShopkeeper = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = await createShopkeeperAccount(newShopkeeperName, newShopkeeperEmail, newShopkeeperShopId);
-    
-    if (res.success) {
-      // 1. Create complete ShopAccount record if not existing
-      const existingShop = shops.find(s => s.id === newShopkeeperShopId);
-      let updatedShops = [...shops];
-
-      if (!existingShop) {
+    try {
+      const res = await createShopkeeperAccount(newShopkeeperName, newShopkeeperEmail, newShopkeeperShopId);
+      
+      if (res.success) {
         const createdShopName = newShopName.trim() || `Canteen ${newShopkeeperName}`;
         const newShopObj: ShopAccount = {
           id: newShopkeeperShopId,
@@ -490,38 +487,50 @@ export default function WebApp() {
           qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=${newShopkeeperShopId}@okaxis&pn=${encodeURIComponent(createdShopName)}`,
           rating: 5.0
         };
-        updatedShops = [newShopObj, ...shops];
-        setShops(updatedShops);
-        saveShops(updatedShops); // Persists to storage & emits 'hunger_shops_updated' event to Customer Dashboards!
-      }
 
-      alert(`🎉 Shopkeeper account & Canteen Shop created for ${newShopkeeperName} (${newShopkeeperEmail})! Immediately visible on Customer Dashboard.`);
-      setIsAddShopkeeperOpen(false);
-      setNewShopkeeperName('');
-      setNewShopkeeperEmail('');
-      setNewShopName('');
-    } else {
-      alert(res.message || 'Failed to create shopkeeper account.');
+        const updatedShops = addOrUpdateShopAccount(newShopObj);
+        setShops(updatedShops);
+
+        alert(`🎉 Success: Shopkeeper account & Canteen "${createdShopName}" created! Immediately visible on Customer Dashboard.`);
+        setIsAddShopkeeperOpen(false);
+        setNewShopkeeperName('');
+        setNewShopkeeperEmail('');
+        setNewShopName('');
+      } else {
+        alert(`❌ Error: ${res.message || 'Failed to create shopkeeper account.'}`);
+      }
+    } catch (err: any) {
+      alert(`❌ Error adding shop: ${err.message || 'Failed to complete request'}`);
     }
   };
 
-  // FOOD MENU CRUD
+  // SUPER ADMIN 2: DELETE CANTEEN SHOP (DELETES FROM DB & REMOVES ALL ASSOCIATED DISHES)
+  const handleDeleteShop = (shopId: string, shopName: string) => {
+    if (confirm(`Are you sure you want to delete "${shopName}"? This will permanently remove the shop and all its menu items.`)) {
+      try {
+        const { shops: updatedShops, menuItems: updatedMenu } = deleteShopAccount(shopId);
+        setShops(updatedShops);
+        setMenuItems(updatedMenu);
+        alert(`✅ Shop "${shopName}" and all associated menu items have been deleted!`);
+      } catch (err: any) {
+        alert(`❌ Failed to delete shop: ${err.message || 'Error occurred'}`);
+      }
+    }
+  };
+
+  // SHOPKEEPER 3: ADD OR EDIT FOOD ITEM (WRITES TO DB & REFLECTS ON CUSTOMER DASHBOARD)
   const handleSaveFoodItem = (e: React.FormEvent) => {
     e.preventDefault();
-    const activeShopId = currentUser?.shopId || 'shop-1';
-    const activeShop = shops.find(s => s.id === activeShopId) || shops[0];
+    try {
+      const activeShopId = currentUser?.shopId || 'shop-1';
+      const activeShop = shops.find(s => s.id === activeShopId) || shops[0];
 
-    let updatedMenu: FoodItem[];
-
-    if (editingItem) {
-      updatedMenu = menuItems.map(item => item.id === editingItem.id ? {
-        ...item,
+      const itemToSave: FoodItem = editingItem ? {
+        ...editingItem,
         ...itemForm,
         shopId: activeShop.id,
         shopName: activeShop.name
-      } : item);
-    } else {
-      const newItem: FoodItem = {
+      } : {
         id: `m-${Date.now()}`,
         ...itemForm,
         rating: 4.8,
@@ -529,21 +538,30 @@ export default function WebApp() {
         shopId: activeShop.id,
         shopName: activeShop.name
       };
-      updatedMenu = [newItem, ...menuItems];
+
+      const updatedMenu = addOrUpdateFoodItem(itemToSave);
+      setMenuItems(updatedMenu);
+
+      setIsItemModalOpen(false);
+      setEditingItem(null);
+      alert(`✅ Food item "${itemToSave.name}" saved successfully! Visible on Customer Dashboard.`);
+    } catch (err: any) {
+      alert(`❌ Error saving food item: ${err.message || 'Failed to save'}`);
     }
-
-    setMenuItems(updatedMenu);
-    saveMenuItems(updatedMenu);
-
-    setIsItemModalOpen(false);
-    setEditingItem(null);
   };
 
+  // SHOPKEEPER 4: DELETE FOOD ITEM (DELETES FROM DB & DISAPPEARS EVERYWHERE)
   const handleDeleteItem = (id: string) => {
-    if (confirm('Are you sure you want to delete this food item?')) {
-      const updatedMenu = menuItems.filter(i => i.id !== id);
-      setMenuItems(updatedMenu);
-      saveMenuItems(updatedMenu);
+    const itemToDelete = menuItems.find(i => i.id === id);
+    const itemName = itemToDelete ? itemToDelete.name : 'this item';
+    if (confirm(`Are you sure you want to delete "${itemName}"?`)) {
+      try {
+        const updatedMenu = deleteFoodItemById(id);
+        setMenuItems(updatedMenu);
+        alert(`✅ Food item "${itemName}" deleted successfully!`);
+      } catch (err: any) {
+        alert(`❌ Error deleting food item: ${err.message || 'Failed to delete'}`);
+      }
     }
   };
 
@@ -1132,7 +1150,7 @@ export default function WebApp() {
           </div>
         )}
 
-        {/* SHOPKEEPER DASHBOARD: LIVE CAMERA QR SCANNER */}
+        {/* SHOPKEEPER DASHBOARD: LIVE CAMERA QR SCANNER & MENU MANAGEMENT */}
         {currentUser.role === 'shopkeeper' && (
           <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
             
@@ -1169,7 +1187,6 @@ export default function WebApp() {
                 </span>
               </div>
 
-              {/* CAMERA ERROR BANNER WITH FALLBACK */}
               {cameraError && (
                 <div className="bg-red-950/80 border border-red-500/50 text-red-300 p-4 rounded-2xl text-xs font-bold flex items-center gap-3">
                   <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -1180,7 +1197,6 @@ export default function WebApp() {
                 </div>
               )}
 
-              {/* SCAN RESULT BANNER */}
               {scanResult && (
                 <div className={`p-4 rounded-2xl border text-xs font-bold space-y-2 animate-fadeIn ${
                   scanResult.isUnpaidWarning ? 'bg-yellow-950/80 border-yellow-500/50 text-yellow-300' :
@@ -1230,7 +1246,6 @@ export default function WebApp() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
-                {/* DEVICE CAMERA SCANNER PREVIEW PANEL */}
                 <div className="glass-card p-5 rounded-2xl space-y-3 text-center border border-slate-800">
                   <div className="w-full h-48 bg-slate-950 rounded-xl overflow-hidden relative border border-slate-800 flex items-center justify-center">
                     <video 
@@ -1283,7 +1298,6 @@ export default function WebApp() {
                   )}
                 </div>
 
-                {/* MANUAL FALLBACK INPUT PANEL */}
                 <div className="glass-card p-5 rounded-2xl space-y-3 border border-slate-800">
                   <h4 className="font-bold text-sm text-white flex items-center gap-2">
                     <QrCode className="w-4 h-4 text-emerald-400" />
@@ -1396,7 +1410,7 @@ export default function WebApp() {
               )}
             </div>
 
-            {/* SECTION C: FOOD MENU MANAGEMENT */}
+            {/* SECTION C: FOOD MENU MANAGEMENT (ADD & DELETE FOOD ITEMS) */}
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div>
@@ -1434,12 +1448,14 @@ export default function WebApp() {
                         <button 
                           onClick={() => openEditItemModal(item)}
                           className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+                          title="Edit Food Item"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
                         <button 
                           onClick={() => handleDeleteItem(item.id)}
                           className="p-1.5 bg-red-950/60 hover:bg-red-900 text-red-400 rounded-lg transition"
+                          title="Delete Food Item"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1498,7 +1514,7 @@ export default function WebApp() {
           </div>
         )}
 
-        {/* HIDDEN SUPER ADMIN DASHBOARD (ADD SHOPKEEPER + INSTANT CUSTOMER SHOP CREATION) */}
+        {/* HIDDEN SUPER ADMIN DASHBOARD (ADD SHOP & DELETE SHOP) */}
         {currentUser.role === 'super_admin' && (
           <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
             <div className="glass-panel p-6 rounded-3xl border border-purple-500/40 bg-gradient-to-r from-purple-950/40 via-slate-900 to-slate-900 space-y-2">
@@ -1543,42 +1559,38 @@ export default function WebApp() {
               </div>
             </div>
 
+            {/* SUPER ADMIN SHOP & SHOPKEEPER MANAGEMENT LIST WITH DELETE SHOP BUTTON */}
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
               <h3 className="font-extrabold font-heading text-base text-white border-b border-slate-800 pb-3 flex items-center gap-2">
                 <Users className="w-5 h-5 text-purple-400" />
-                <span>Shopkeeper Accounts Management</span>
+                <span>Shopkeeper & Canteen Shops Management ({shops.length} Canteens)</span>
               </h3>
 
               <div className="space-y-3">
-                {getAllShopkeepers().map(sk => {
-                  const assignedShop = shops.find(s => s.id === sk.shopId);
-                  return (
-                    <div key={sk.id} className="glass-card p-4 rounded-2xl flex items-center justify-between border border-slate-800">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-bold text-sm text-white">{sk.name}</h4>
-                          <span className="bg-purple-500/20 text-purple-300 text-[10px] font-bold px-2 py-0.5 rounded-md border border-purple-500/30">
-                            {assignedShop?.name || sk.shopId}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-400 font-mono">{sk.email}</p>
+                {shops.map(s => (
+                  <div key={s.id} className="glass-card p-4 rounded-2xl flex items-center justify-between border border-slate-800">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-sm text-white">{s.name}</h4>
+                        <span className="bg-purple-500/20 text-purple-300 text-[10px] font-bold px-2 py-0.5 rounded-md border border-purple-500/30">
+                          {s.id}
+                        </span>
                       </div>
+                      <p className="text-xs text-slate-400 font-mono">Owner Email: {s.email} • UPI VPA: {s.upiId}</p>
+                    </div>
 
+                    <div className="flex items-center gap-2">
                       <button 
-                        onClick={async () => {
-                          if (confirm(`Deactivate shopkeeper ${sk.name}?`)) {
-                            await deactivateShopkeeper(sk.id);
-                            alert(`Deactivated ${sk.name}.`);
-                            setActiveTab('admin');
-                          }
-                        }}
-                        className="bg-red-950/60 hover:bg-red-900 border border-red-500/30 text-red-400 font-bold px-3 py-1.5 rounded-xl text-xs transition"
+                        onClick={() => handleDeleteShop(s.id, s.name)}
+                        className="bg-red-950/60 hover:bg-red-900 border border-red-500/30 text-red-400 font-bold px-3 py-1.5 rounded-xl text-xs transition flex items-center gap-1.5"
+                        title="Delete Canteen Shop and dishes"
                       >
-                        Deactivate
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete Shop</span>
                       </button>
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </div>
 

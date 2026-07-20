@@ -1,5 +1,5 @@
 // Persistence and Real-time Sync layer for Shops & Food Menu Items
-// Fixes stale data issue by syncing Shopkeeper edits directly to Customer Dashboard via localStorage & BroadcastEvents
+// Fixes stale data issue by syncing Shopkeeper & Super Admin CRUD actions directly to Customer Dashboard via localStorage & BroadcastEvents
 
 export interface ShopAccount {
   id: string;
@@ -161,8 +161,8 @@ export const INITIAL_MENU: FoodItem[] = [
   }
 ];
 
-const STORAGE_SHOPS_KEY = 'hunger_shops_data_v1';
-const STORAGE_MENU_KEY = 'hunger_menu_data_v1';
+const STORAGE_SHOPS_KEY = 'hunger_shops_data_v2';
+const STORAGE_MENU_KEY = 'hunger_menu_data_v2';
 
 export function loadShops(): ShopAccount[] {
   try {
@@ -206,4 +206,58 @@ export function saveMenuItems(menu: FoodItem[]): void {
   } catch (e) {
     console.error('[shopsAndMenu] Error saving menu:', e);
   }
+}
+
+/** 1. ADD / UPDATE SHOP (SUPER ADMIN) */
+export function addOrUpdateShopAccount(shop: ShopAccount): ShopAccount[] {
+  const currentShops = loadShops();
+  const existingIndex = currentShops.findIndex(s => s.id === shop.id);
+  
+  let updated: ShopAccount[];
+  if (existingIndex >= 0) {
+    updated = currentShops.map(s => s.id === shop.id ? { ...s, ...shop } : s);
+  } else {
+    updated = [shop, ...currentShops];
+  }
+
+  saveShops(updated);
+  return updated;
+}
+
+/** 2. DELETE SHOP & REMOVE ALL ASSOCIATED DISHES (SUPER ADMIN) */
+export function deleteShopAccount(shopId: string): { shops: ShopAccount[]; menuItems: FoodItem[] } {
+  const currentShops = loadShops();
+  const updatedShops = currentShops.filter(s => s.id !== shopId);
+  saveShops(updatedShops);
+
+  // Also remove all dishes associated with this shopId
+  const currentMenu = loadMenuItems();
+  const updatedMenu = currentMenu.filter(m => m.shopId !== shopId);
+  saveMenuItems(updatedMenu);
+
+  return { shops: updatedShops, menuItems: updatedMenu };
+}
+
+/** 3. ADD OR EDIT FOOD ITEM (SHOPKEEPER) */
+export function addOrUpdateFoodItem(item: FoodItem): FoodItem[] {
+  const currentMenu = loadMenuItems();
+  const existingIndex = currentMenu.findIndex(m => m.id === item.id);
+
+  let updated: FoodItem[];
+  if (existingIndex >= 0) {
+    updated = currentMenu.map(m => m.id === item.id ? { ...m, ...item } : m);
+  } else {
+    updated = [item, ...currentMenu];
+  }
+
+  saveMenuItems(updated);
+  return updated;
+}
+
+/** 4. DELETE FOOD ITEM (SHOPKEEPER) */
+export function deleteFoodItemById(itemId: string): FoodItem[] {
+  const currentMenu = loadMenuItems();
+  const updated = currentMenu.filter(m => m.id !== itemId);
+  saveMenuItems(updated);
+  return updated;
 }
