@@ -651,14 +651,24 @@ export default function WebApp() {
     }
   };
 
-  // SUPER ADMIN 2: DELETE CANTEEN SHOP
+  // SUPER ADMIN 2: DELETE CANTEEN SHOP (WITH PENDING ORDER SAFEGUARD)
   const handleDeleteShop = async (shopId: string, shopName: string) => {
-    if (confirm(`Are you sure you want to delete "${shopName}"? This will permanently remove the shop and all its menu items from the database.`)) {
+    // Safeguard: Check if there are active pending / unfulfilled orders for this shop
+    const activePendingOrders = ordersHistory.filter(o => 
+      o.shopId === shopId && ['Pending', 'Accepted', 'Food Ready'].includes(o.status)
+    );
+
+    if (activePendingOrders.length > 0) {
+      alert(`⚠️ CANNOT DELETE SHOP: "${shopName}" currently has ${activePendingOrders.length} active unfulfilled order(s)! Please fulfill or cancel these orders before deleting the canteen shop.`);
+      return;
+    }
+
+    if (confirm(`Are you sure you want to delete "${shopName}"? This will permanently remove the shop and all its menu items while preserving historical order logs.`)) {
       try {
         const { shops: updatedShops, menuItems: updatedMenu } = await deleteShopAccount(shopId);
         setShops(updatedShops);
         setMenuItems(updatedMenu);
-        alert(`✅ Shop "${shopName}" and all associated menu items deleted!`);
+        alert(`✅ Shop "${shopName}" and all associated food items have been deleted!`);
       } catch (err: any) {
         alert(`❌ Failed to delete shop: ${err.message || 'Error occurred'}`);
       }
