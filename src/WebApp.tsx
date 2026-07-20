@@ -18,23 +18,9 @@ import {
   verifyAndProcessQrHandover as verifyAndProcessQrHandoverApi,
   OrderDoc
 } from './services/orders';
-
-interface FoodItem {
-  id: string;
-  name: string;
-  category: string;
-  price: number;
-  rating: number;
-  prepTime: string;
-  image: string;
-  isVeg: boolean;
-  shopId: string;
-  shopName: string;
-  description: string;
-  isAvailable: boolean;
-  availableFrom?: string; // e.g. "08:00"
-  availableUntil?: string; // e.g. "11:00"
-}
+import {
+  ShopAccount, FoodItem, loadShops, saveShops, loadMenuItems, saveMenuItems
+} from './services/shopsAndMenu';
 
 interface CartItem extends FoodItem {
   qty: number;
@@ -58,149 +44,6 @@ interface Order {
   payeeQrUrl?: string;
 }
 
-interface ShopAccount {
-  id: string;
-  name: string;
-  email: string;
-  upiId: string;
-  qrImageUrl: string;
-  rating: number;
-}
-
-const INITIAL_SHOPS: ShopAccount[] = [
-  { 
-    id: 'shop-1', 
-    name: 'Hunger Central Canteen', 
-    email: 'canteen@hunger.com', 
-    upiId: 'hungercanteen@okaxis', 
-    qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=hungercanteen@okaxis&pn=Hunger%20Central%20Canteen',
-    rating: 4.8 
-  },
-  { 
-    id: 'shop-2', 
-    name: 'Madras Tiffins', 
-    email: 'madrastiffins@hunger.com', 
-    upiId: 'madrastiffins@upi', 
-    qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=madrastiffins@upi&pn=Madras%20Tiffins',
-    rating: 4.9 
-  },
-  { 
-    id: 'shop-3', 
-    name: 'Sip & Snack Express', 
-    email: 'sipsnack@hunger.com', 
-    upiId: 'sipsnack@okicici', 
-    qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=sipsnack@okicici&pn=Sip%20Snack',
-    rating: 4.7 
-  },
-  { 
-    id: 'shop-4', 
-    name: 'Campus Grill House', 
-    email: 'grill@hunger.com', 
-    upiId: 'campusgrill@ybl', 
-    qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=campusgrill@ybl&pn=Campus%20Grill',
-    rating: 4.6 
-  },
-];
-
-const INITIAL_MENU: FoodItem[] = [
-  {
-    id: 'm1',
-    name: 'Ghee Roast Dosa',
-    category: 'South Indian',
-    price: 75,
-    rating: 4.9,
-    prepTime: '8-10 mins',
-    image: 'https://images.unsplash.com/photo-1668236543090-82eba5ee5976?w=500&auto=format&fit=crop&q=80',
-    isVeg: true,
-    shopId: 'shop-2',
-    shopName: 'Madras Tiffins',
-    description: 'Golden crispy crepe cooked in pure desi ghee served with 3 coconut chutneys and sambar.',
-    isAvailable: true,
-    availableFrom: '07:30',
-    availableUntil: '22:00'
-  },
-  {
-    id: 'm2',
-    name: 'Crispy Veg Paneer Burger',
-    category: 'Fast Food',
-    price: 110,
-    rating: 4.8,
-    prepTime: '12-15 mins',
-    image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=80',
-    isVeg: true,
-    shopId: 'shop-1',
-    shopName: 'Hunger Central Canteen',
-    description: 'Juicy spiced cottage cheese patty topped with melted cheddar, fresh lettuce & house burger sauce.',
-    isAvailable: true,
-    availableFrom: '11:00',
-    availableUntil: '21:30'
-  },
-  {
-    id: 'm3',
-    name: 'Iced Caramel Macchiato',
-    category: 'Beverages',
-    price: 90,
-    rating: 4.7,
-    prepTime: '3-5 mins',
-    image: 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=500&auto=format&fit=crop&q=80',
-    isVeg: true,
-    shopId: 'shop-3',
-    shopName: 'Sip & Snack Express',
-    description: 'Freshly pulled espresso shot poured over chilled milk and rich caramel drizzle.',
-    isAvailable: true,
-    availableFrom: '08:00',
-    availableUntil: '21:00'
-  },
-  {
-    id: 'm4',
-    name: 'Paneer Butter Masala Combo',
-    category: 'Main Course',
-    price: 140,
-    rating: 4.9,
-    prepTime: '15 mins',
-    image: 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=500&auto=format&fit=crop&q=80',
-    isVeg: true,
-    shopId: 'shop-1',
-    shopName: 'Hunger Central Canteen',
-    description: 'Creamy cottage cheese gravy served with 2 Butter Naans and fragrant Jeera Rice.',
-    isAvailable: true,
-    availableFrom: '12:00',
-    availableUntil: '15:30'
-  },
-  {
-    id: 'm5',
-    name: 'Schezwan Fried Rice',
-    category: 'Fast Food',
-    price: 95,
-    rating: 4.6,
-    prepTime: '10-12 mins',
-    image: 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=500&auto=format&fit=crop&q=80',
-    isVeg: true,
-    shopId: 'shop-4',
-    shopName: 'Campus Grill House',
-    description: 'Wok-tossed basmati rice with crunchy garden veggies in fiery homemade Schezwan sauce.',
-    isAvailable: true,
-    availableFrom: '11:30',
-    availableUntil: '22:30'
-  },
-  {
-    id: 'm6',
-    name: 'Cold Coffee with Ice Cream',
-    category: 'Beverages',
-    price: 85,
-    rating: 4.8,
-    prepTime: '4 mins',
-    image: 'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=500&auto=format&fit=crop&q=80',
-    isVeg: true,
-    shopId: 'shop-3',
-    shopName: 'Sip & Snack Express',
-    description: 'Thick blended coffee topped with a generous scoop of creamy dark chocolate ice cream.',
-    isAvailable: true,
-    availableFrom: '09:00',
-    availableUntil: '21:00'
-  }
-];
-
 export default function WebApp() {
   // Navigation & User Session State
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
@@ -210,15 +53,37 @@ export default function WebApp() {
   const [selectedShopId, setSelectedShopId] = useState<string>('all');
   const [location, setLocation] = useState('Hostel Block B — Room 204');
 
-  // Master Data State
-  const [shops, setShops] = useState<ShopAccount[]>(INITIAL_SHOPS);
-  const [menuItems, setMenuItems] = useState<FoodItem[]>(INITIAL_MENU);
+  // Master Data State (Persisted & Synced across Customer & Shopkeeper Dashboards)
+  const [shops, setShops] = useState<ShopAccount[]>(() => loadShops());
+  const [menuItems, setMenuItems] = useState<FoodItem[]>(() => loadMenuItems());
   const [cart, setCart] = useState<CartItem[]>([]);
   const [ordersHistory, setOrdersHistory] = useState<Order[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<'upi_gpay' | 'upi_phonepe' | 'upi_paytm' | 'upi_qr'>('upi_gpay');
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
+
+  // Real-Time Listener to sync Shopkeeper updates to Customer Dashboard
+  useEffect(() => {
+    const handleSync = () => {
+      setShops(loadShops());
+      setMenuItems(loadMenuItems());
+      setLastSyncTime(new Date().toLocaleTimeString());
+    };
+
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('hunger_shops_updated', handleSync);
+    window.addEventListener('hunger_menu_updated', handleSync);
+    window.addEventListener('focus', handleSync);
+
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('hunger_shops_updated', handleSync);
+      window.removeEventListener('hunger_menu_updated', handleSync);
+      window.removeEventListener('focus', handleSync);
+    };
+  }, []);
 
   // Auth Form State
   const [authTab, setAuthTab] = useState<'customer' | 'shopkeeper'>('customer');
@@ -327,7 +192,7 @@ export default function WebApp() {
 
   const currentCheckoutShop = cart.length > 0 ? shops.find(s => s.id === cart[0].shopId) || shops[0] : shops[0];
 
-  // AUTHENTICATION SUBMISSION HANDLER -> AFTER LOGIN THE DASHBOARD APPEARS!
+  // AUTHENTICATION SUBMISSION HANDLER
   const handleAuthSubmit = async (e?: React.FormEvent, directEmail?: string, directPassword?: string, directShopId?: string) => {
     if (e) e.preventDefault();
     setAuthError(null);
@@ -416,7 +281,7 @@ export default function WebApp() {
     }, 3500);
   };
 
-  // QR AUTO HANDOVER ENGINE (WIRED TO ORDERS SERVICE VERIFICATION)
+  // QR AUTO HANDOVER ENGINE
   const processQrScanHandover = async (scannedRaw: string) => {
     setScanFeedback(null);
     const loggedInShopId = currentUser?.shopId || 'shop-1';
@@ -504,19 +369,21 @@ export default function WebApp() {
     }
   };
 
-  // Food Menu CRUD
+  // FOOD MENU CRUD WITH REAL-TIME CUSTOMER DASHBOARD PERSISTENCE
   const handleSaveFoodItem = (e: React.FormEvent) => {
     e.preventDefault();
     const activeShopId = currentUser?.shopId || 'shop-1';
     const activeShop = shops.find(s => s.id === activeShopId) || shops[0];
 
+    let updatedMenu: FoodItem[];
+
     if (editingItem) {
-      setMenuItems(prev => prev.map(item => item.id === editingItem.id ? {
+      updatedMenu = menuItems.map(item => item.id === editingItem.id ? {
         ...item,
         ...itemForm,
         shopId: activeShop.id,
         shopName: activeShop.name
-      } : item));
+      } : item);
     } else {
       const newItem: FoodItem = {
         id: `m-${Date.now()}`,
@@ -526,8 +393,11 @@ export default function WebApp() {
         shopId: activeShop.id,
         shopName: activeShop.name
       };
-      setMenuItems(prev => [newItem, ...prev]);
+      updatedMenu = [newItem, ...menuItems];
     }
+
+    setMenuItems(updatedMenu);
+    saveMenuItems(updatedMenu);
 
     setIsItemModalOpen(false);
     setEditingItem(null);
@@ -535,7 +405,9 @@ export default function WebApp() {
 
   const handleDeleteItem = (id: string) => {
     if (confirm('Are you sure you want to delete this food item?')) {
-      setMenuItems(prev => prev.filter(i => i.id !== id));
+      const updatedMenu = menuItems.filter(i => i.id !== id);
+      setMenuItems(updatedMenu);
+      saveMenuItems(updatedMenu);
     }
   };
 
@@ -595,6 +467,13 @@ export default function WebApp() {
   });
 
   const activeShopForOwner = shops.find(s => s.id === (currentUser?.shopId || 'shop-1')) || shops[0];
+
+  // Manual Refresh Handler for Customer Dashboard
+  const triggerManualSync = () => {
+    setShops(loadShops());
+    setMenuItems(loadMenuItems());
+    setLastSyncTime(new Date().toLocaleTimeString());
+  };
 
   // IF USER IS NOT LOGGED IN -> RENDER HUNGER LOGIN SCREEN FIRST!
   if (!currentUser) {
@@ -768,8 +647,19 @@ export default function WebApp() {
             />
           </div>
 
-          {/* Logged In User Profile Banner & Log Out */}
+          {/* Logged In User Profile Banner, Manual Refresh & Log Out */}
           <div className="flex items-center gap-3">
+            
+            {/* Sync Refresh Button */}
+            <button 
+              onClick={triggerManualSync}
+              className="bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 p-2 rounded-xl text-xs transition flex items-center gap-1"
+              title={`Last synced at ${lastSyncTime}. Click to refresh latest shopkeeper edits.`}
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin-slow" />
+              <span className="hidden md:inline text-[11px] font-medium">Sync Data</span>
+            </button>
+
             <div className="flex items-center gap-2">
               <div className="text-right hidden sm:block">
                 <p className="text-xs font-bold text-white leading-tight">{currentUser.name}</p>
@@ -898,7 +788,11 @@ export default function WebApp() {
 
             {/* Campus Canteen Shops */}
             <div className="space-y-4">
-              <h2 className="text-xl font-bold font-heading text-slate-100">Campus Canteens</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold font-heading text-slate-100">Campus Canteens ({shops.length})</h2>
+                <span className="text-xs text-slate-400">Live synced with shopkeeper profiles</span>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {shops.map(shop => (
                   <div 
@@ -936,7 +830,11 @@ export default function WebApp() {
 
             {/* Menu Items Preview */}
             <div className="space-y-4 pt-4">
-              <h2 className="text-xl font-bold font-heading text-slate-100">Featured Dishes & Operating Windows</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold font-heading text-slate-100">Featured Dishes & Operating Windows ({filteredMenu.length})</h2>
+                <span className="text-xs text-slate-400">Updates dynamically when shopkeepers edit food items</span>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredMenu.slice(0, 6).map(item => {
                   const availableNow = isItemInTimeSlot(item);
@@ -1001,7 +899,7 @@ export default function WebApp() {
           <div className="space-y-6 animate-fadeIn">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 glass-panel p-4 rounded-2xl border border-slate-800">
               <div>
-                <h2 className="text-2xl font-extrabold font-heading text-slate-100">Full Canteen Menu</h2>
+                <h2 className="text-2xl font-extrabold font-heading text-slate-100">Full Canteen Menu ({filteredMenu.length} items)</h2>
                 <p className="text-xs text-slate-400">Time-slot availability & shop payment QR enabled</p>
               </div>
 
@@ -1012,7 +910,7 @@ export default function WebApp() {
                   onChange={(e) => setSelectedShopId(e.target.value)}
                   className="bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500"
                 >
-                  <option value="all">All Canteens & Shops</option>
+                  <option value="all">All Canteens & Shops ({shops.length})</option>
                   {shops.map(s => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
@@ -1099,7 +997,7 @@ export default function WebApp() {
               </div>
             </div>
 
-            {/* Stepper Steps (NO MANUAL BUTTON) */}
+            {/* Stepper Steps */}
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-6">
               <h3 className="font-bold text-sm text-slate-200 border-b border-slate-800 pb-3">Real-time Order Status</h3>
 
@@ -1185,7 +1083,7 @@ export default function WebApp() {
               </div>
             </div>
 
-            {/* SECTION A: CAMERA QR AUTO HANDOVER SCANNER (NO MANUAL HANDOVER BUTTON) */}
+            {/* SECTION A: CAMERA QR AUTO HANDOVER SCANNER */}
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2">
@@ -1278,7 +1176,6 @@ export default function WebApp() {
                     ))}
                   </div>
 
-                  {/* NO MANUAL HANDOVER BUTTON HERE */}
                   <div className="pt-2 flex flex-wrap items-center gap-3">
                     {currentOrder.status !== 'Food Ready' && currentOrder.status !== 'Completed' && (
                       <button 
@@ -1310,12 +1207,12 @@ export default function WebApp() {
               )}
             </div>
 
-            {/* SECTION C: FOOD MENU MANAGEMENT */}
+            {/* SECTION C: FOOD MENU MANAGEMENT (WITH LIVE CUSTOMER DASHBOARD PERSISTENCE) */}
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div>
                   <h3 className="font-extrabold font-heading text-base text-white">Food Menu Management</h3>
-                  <p className="text-xs text-slate-400">Set prices, active toggles & time-slot operating windows</p>
+                  <p className="text-xs text-slate-400">Edits and new dishes reflect instantly on Customer Dashboard</p>
                 </div>
 
                 <button 
@@ -1394,13 +1291,14 @@ export default function WebApp() {
 
               <button 
                 onClick={() => {
-                  const updated = {
+                  const updatedShops = shops.map(s => s.id === activeShopForOwner.id ? {
                     ...activeShopForOwner,
                     upiId: editingShopUpi || activeShopForOwner.upiId,
                     qrImageUrl: editingShopQrUrl || activeShopForOwner.qrImageUrl
-                  };
-                  setShops(prev => prev.map(s => s.id === activeShopForOwner.id ? updated : s));
-                  alert('Shop payment UPI QR and VPA updated successfully!');
+                  } : s);
+                  setShops(updatedShops);
+                  saveShops(updatedShops);
+                  alert('Shop payment UPI QR and VPA updated & synced to Customer Dashboard!');
                 }}
                 className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition shadow-md shadow-emerald-600/20"
               >
@@ -1446,7 +1344,7 @@ export default function WebApp() {
               <div className="glass-card p-5 rounded-2xl border border-slate-800 space-y-2">
                 <span className="text-xs text-slate-400 font-medium">Active Campus Canteens</span>
                 <p className="font-heading font-extrabold text-3xl text-purple-400">{shops.length}</p>
-                <p className="text-[11px] text-slate-400">4 active canteens registered</p>
+                <p className="text-[11px] text-slate-400">{shops.length} active canteens registered</p>
               </div>
 
               <div className="glass-card p-5 rounded-2xl border border-slate-800 space-y-2">
