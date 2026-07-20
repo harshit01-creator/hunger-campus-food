@@ -5,7 +5,7 @@ import {
   Utensils, Store, User, Bell, Flame, Filter, RefreshCw, X, ShieldCheck,
   Camera, Lock, Edit3, Trash2, Calendar, AlertCircle, LogOut, Check, Upload,
   Users, Shield, BarChart3, AlertTriangle, Key, Mail, Eye, EyeOff, LogIn, DollarSign,
-  Video, VideoOff
+  Video, VideoOff, Sun, Moon, Globe, Star, Share2, Copy, TrendingUp
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import kprLogo from './assets/logo.png';
@@ -23,8 +23,9 @@ import {
 import {
   ShopAccount, FoodItem, loadShops, saveShops, loadMenuItems, saveMenuItems,
   addOrUpdateShopAccount, deleteShopAccount, addOrUpdateFoodItem, deleteFoodItemById,
-  fetchShopsFromSupabase, fetchMenuItemsFromSupabase
+  fetchShopsFromSupabase, fetchMenuItemsFromSupabase, getCategoryDefaultImage, toggleSpecialStatus
 } from './services/shopsAndMenu';
+import { LanguageCode, getSavedLanguage, saveLanguage, t } from './services/i18n';
 
 interface CartItem extends FoodItem {
   qty: number;
@@ -52,13 +53,42 @@ interface Order {
 }
 
 export default function WebApp() {
+  // Theme State (Persisted in localStorage with System fallback)
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    try {
+      const saved = localStorage.getItem('hunger_theme_pref');
+      if (saved === 'dark' || saved === 'light') return saved;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } catch {
+      return 'dark';
+    }
+  });
+
+  const toggleTheme = () => {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(nextTheme);
+    localStorage.setItem('hunger_theme_pref', nextTheme);
+  };
+
+  // i18n Multi-Language State
+  const [currentLang, setCurrentLang] = useState<LanguageCode>(() => getSavedLanguage());
+  const handleLangChange = (lang: LanguageCode) => {
+    setCurrentLang(lang);
+    saveLanguage(lang);
+  };
+
+  // Vercel Link Sharing Modal State
+  const [isVercelModalOpen, setIsVercelModalOpen] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const vercelAppUrl = 'https://hunger-campus-food.vercel.app';
+
   // Navigation & Session State
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'menu' | 'tracking' | 'owner' | 'admin'>('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedShopId, setSelectedShopId] = useState<string>('all');
-  const [location, setLocation] = useState('Hostel Block B — Room 204');
+  const [salesTimeFilter, setSalesTimeFilter] = useState<'today' | 'week' | 'all'>('today');
 
   // Master Data State (Persisted & Real-Time Synced)
   const [shops, setShops] = useState<ShopAccount[]>(() => loadShops());
@@ -73,11 +103,9 @@ export default function WebApp() {
 
   // Real-Time Event Listener & Cloud Database Hydration
   useEffect(() => {
-    // 1. Initial Cloud Database Hydration (Supabase PostgreSQL)
     fetchShopsFromSupabase().then(dbShops => setShops(dbShops));
     fetchMenuItemsFromSupabase().then(dbMenu => setMenuItems(dbMenu));
 
-    // 2. Real-time Event Listeners
     const handleSync = async () => {
       const dbShops = await fetchShopsFromSupabase();
       const dbMenu = await fetchMenuItemsFromSupabase();
@@ -118,16 +146,18 @@ export default function WebApp() {
     isAvailable: boolean;
     availableFrom: string;
     availableUntil: string;
+    isSpecial: boolean;
   }>({
     name: '',
     category: 'Fast Food',
     price: 90,
     description: '',
-    image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=80',
+    image: '',
     isVeg: true,
     isAvailable: true,
     availableFrom: '08:00',
-    availableUntil: '22:00'
+    availableUntil: '22:00',
+    isSpecial: false
   });
 
   // Shop Owner Settings State
@@ -273,7 +303,6 @@ export default function WebApp() {
       };
       setCurrentUser(finalUser);
 
-      // REDIRECT ROUTING LOGIC
       if (finalUser.role === 'super_admin') {
         setActiveTab('admin');
       } else if (finalUser.role === 'shopkeeper' || authTab === 'shopkeeper') {
@@ -378,7 +407,6 @@ export default function WebApp() {
     const loggedInShopId = currentUser?.shopId || 'shop-1';
     const shopOwnerName = currentUser?.name || 'Canteen Manager';
 
-    // Server verification API
     const apiRes = await verifyAndProcessQrHandoverApi(scannedRaw, loggedInShopId, shopOwnerName);
     
     if (apiRes.isUnpaidWarning) {
@@ -485,7 +513,7 @@ export default function WebApp() {
     }
   };
 
-  // SUPER ADMIN 1: ADD NEW CANTEEN SHOP (WRITES TO SUPABASE CLOUD DATABASE & REFLECTS ON ALL DEVICES)
+  // SUPER ADMIN 1: ADD NEW CANTEEN SHOP
   const handleAddShopkeeper = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -505,7 +533,7 @@ export default function WebApp() {
         const updatedShops = await addOrUpdateShopAccount(newShopObj);
         setShops(updatedShops);
 
-        alert(`🎉 Success: Shopkeeper account & Canteen "${createdShopName}" saved to Supabase cloud database! Visible on all devices permanently.`);
+        alert(`🎉 Success: Shopkeeper account & Canteen "${createdShopName}" saved to database!`);
         setIsAddShopkeeperOpen(false);
         setNewShopkeeperName('');
         setNewShopkeeperEmail('');
@@ -518,36 +546,41 @@ export default function WebApp() {
     }
   };
 
-  // SUPER ADMIN 2: DELETE CANTEEN SHOP (DELETES FROM SUPABASE CLOUD DB & REMOVES ALL ASSOCIATED DISHES)
+  // SUPER ADMIN 2: DELETE CANTEEN SHOP
   const handleDeleteShop = async (shopId: string, shopName: string) => {
     if (confirm(`Are you sure you want to delete "${shopName}"? This will permanently remove the shop and all its menu items from the database.`)) {
       try {
         const { shops: updatedShops, menuItems: updatedMenu } = await deleteShopAccount(shopId);
         setShops(updatedShops);
         setMenuItems(updatedMenu);
-        alert(`✅ Shop "${shopName}" and all associated menu items deleted from Supabase database!`);
+        alert(`✅ Shop "${shopName}" and all associated menu items deleted!`);
       } catch (err: any) {
         alert(`❌ Failed to delete shop: ${err.message || 'Error occurred'}`);
       }
     }
   };
 
-  // SHOPKEEPER 3: ADD OR EDIT FOOD ITEM (WRITES TO SUPABASE CLOUD DB & REFLECTS ON ALL DEVICES)
+  // SHOPKEEPER 3: ADD OR EDIT FOOD ITEM (WITH FEATURE 6: CATEGORY-BASED AUTO DEFAULT IMAGE)
   const handleSaveFoodItem = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const activeShopId = currentUser?.shopId || 'shop-1';
       const activeShop = shops.find(s => s.id === activeShopId) || shops[0];
 
+      // Auto-assign category default image if blank
+      const finalImage = getCategoryDefaultImage(itemForm.category, itemForm.image);
+
       const itemToSave: FoodItem = editingItem ? {
         ...editingItem,
         ...itemForm,
-        id: editingItem.id, // Explicitly preserve existing ID when editing!
+        image: finalImage,
+        id: editingItem.id, // Preserve ID on edit!
         shopId: activeShop.id,
         shopName: activeShop.name
       } : {
         id: `m-${Date.now()}`,
         ...itemForm,
+        image: finalImage,
         rating: 4.8,
         prepTime: '10-12 mins',
         shopId: activeShop.id,
@@ -559,13 +592,13 @@ export default function WebApp() {
 
       setIsItemModalOpen(false);
       setEditingItem(null);
-      alert(`✅ Food item "${itemToSave.name}" saved to database! Visible on Customer Dashboard across all devices.`);
+      alert(`✅ Food item "${itemToSave.name}" saved to database!`);
     } catch (err: any) {
       alert(`❌ Error saving food item: ${err.message || 'Failed to save'}`);
     }
   };
 
-  // SHOPKEEPER 4: DELETE FOOD ITEM (DELETES FROM SUPABASE CLOUD DB)
+  // SHOPKEEPER 4: DELETE FOOD ITEM
   const handleDeleteItem = async (id: string) => {
     const itemToDelete = menuItems.find(i => i.id === id);
     const itemName = itemToDelete ? itemToDelete.name : 'this item';
@@ -573,11 +606,17 @@ export default function WebApp() {
       try {
         const updatedMenu = await deleteFoodItemById(id);
         setMenuItems(updatedMenu);
-        alert(`✅ Food item "${itemName}" deleted from database!`);
+        alert(`✅ Food item "${itemName}" deleted!`);
       } catch (err: any) {
         alert(`❌ Error deleting food item: ${err.message || 'Failed to delete'}`);
       }
     }
+  };
+
+  // FEATURE 4: TOGGLE TODAY'S SPECIAL DISH
+  const handleToggleSpecial = async (itemId: string) => {
+    const updatedMenu = await toggleSpecialStatus(itemId);
+    setMenuItems(updatedMenu);
   };
 
   const openAddItemModal = () => {
@@ -587,11 +626,12 @@ export default function WebApp() {
       category: 'Fast Food',
       price: 90,
       description: '',
-      image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=80',
+      image: '',
       isVeg: true,
       isAvailable: true,
       availableFrom: '08:00',
-      availableUntil: '22:00'
+      availableUntil: '22:00',
+      isSpecial: false
     });
     setIsItemModalOpen(true);
   };
@@ -607,12 +647,13 @@ export default function WebApp() {
       isVeg: item.isVeg,
       isAvailable: item.isAvailable,
       availableFrom: item.availableFrom || '08:00',
-      availableUntil: item.availableUntil || '22:00'
+      availableUntil: item.availableUntil || '22:00',
+      isSpecial: !!item.isSpecial
     });
     setIsItemModalOpen(true);
   };
 
-  const categories = ['All', 'South Indian', 'Fast Food', 'Beverages', 'Main Course'];
+  const categories = ['All', 'South Indian', 'Fast Food', 'Beverages', 'Main Course', 'Snacks', 'Desserts'];
 
   const filteredMenu = menuItems.filter(item => {
     const matchesCategory = selectedCategory === 'All' || item.category === selectedCategory;
@@ -632,21 +673,86 @@ export default function WebApp() {
     setLastSyncTime(new Date().toLocaleTimeString());
   };
 
+  // FEATURE 5: SALES & REVENUE ANALYTICS CALCULATIONS
+  const targetShopOrders = ordersHistory.filter(o => currentUser?.role === 'super_admin' || o.shopId === activeShopForOwner.id);
+  const totalSalesRevenue = targetShopOrders.filter(o => o.paymentStatus === 'Paid').reduce((sum, o) => sum + o.grandTotal, 0);
+  const paidOrdersCount = targetShopOrders.filter(o => o.paymentStatus === 'Paid').length;
+  const unpaidOrdersCount = targetShopOrders.filter(o => o.paymentStatus !== 'Paid').length;
+  const completedHandoverCount = targetShopOrders.filter(o => o.status === 'Completed').length;
+
+  // Best selling dishes calculation
+  const dishSalesMap: Record<string, { name: string; qty: number; total: number }> = {};
+  targetShopOrders.forEach(order => {
+    order.items.forEach(item => {
+      if (!dishSalesMap[item.name]) {
+        dishSalesMap[item.name] = { name: item.name, qty: 0, total: 0 };
+      }
+      dishSalesMap[item.name].qty += item.qty;
+      dishSalesMap[item.name].total += item.price * item.qty;
+    });
+  });
+
+  const topSellingDishes = Object.values(dishSalesMap).sort((a, b) => b.qty - a.qty).slice(0, 5);
+
   // UNAUTHENTICATED -> RENDER LOGIN SCREEN
   if (!currentUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 text-slate-100 selection:bg-blue-600">
-        <div className="w-full max-w-lg glass-panel border border-slate-800 p-6 sm:p-8 rounded-3xl space-y-6 shadow-2xl relative animate-fadeIn">
+      <div className={`min-h-screen flex items-center justify-center p-4 transition-colors duration-300 ${
+        theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'
+      }`}>
+        <div className={`w-full max-w-lg p-6 sm:p-8 rounded-3xl space-y-6 shadow-2xl relative border transition-all ${
+          theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-slate-300/50'
+        }`}>
           
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-blue-500" />
+              <select 
+                value={currentLang} 
+                onChange={(e) => handleLangChange(e.target.value as LanguageCode)}
+                className={`text-xs rounded-xl px-2.5 py-1 font-bold focus:outline-none border ${
+                  theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-800'
+                }`}
+              >
+                <option value="en">🇬🇧 English</option>
+                <option value="hi">🇮🇳 हिंदी (Hindi)</option>
+                <option value="ta">🇮🇳 தமிழ் (Tamil)</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setIsVercelModalOpen(true)}
+                className={`p-2 rounded-xl text-xs font-bold transition border flex items-center gap-1.5 ${
+                  theme === 'dark' ? 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                }`}
+                title="Share Vercel App Link"
+              >
+                <Share2 className="w-3.5 h-3.5 text-blue-500" />
+                <span className="hidden sm:inline">Share App</span>
+              </button>
+
+              <button 
+                onClick={toggleTheme}
+                className={`p-2 rounded-xl text-xs font-bold transition border flex items-center gap-1.5 ${
+                  theme === 'dark' ? 'bg-slate-900 hover:bg-slate-800 text-yellow-400 border-slate-800' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                }`}
+                title="Toggle Light/Dark Theme"
+              >
+                {theme === 'dark' ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
+              </button>
+            </div>
+          </div>
+
           <div className="text-center space-y-2">
             <div className="w-16 h-16 logo-badge mx-auto mb-2">
               <img src={kprLogo} alt="Hunger Logo" className="w-full h-full object-contain" />
             </div>
-            <h1 className="font-heading font-extrabold text-3xl sm:text-4xl gradient-text">Hunger</h1>
-            <p className="text-xs text-slate-400">Campus Food Ordering & Camera QR Auto Handover Platform</p>
+            <h1 className="font-heading font-extrabold text-3xl sm:text-4xl gradient-text">{t('appTitle', currentLang)}</h1>
+            <p className="text-xs text-slate-400">{t('appSubtitle', currentLang)}</p>
           </div>
 
-          <div className="flex bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800">
+          <div className={`flex p-1.5 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/90 border-slate-800' : 'bg-slate-100 border-slate-200'}`}>
             <button 
               onClick={() => {
                 setAuthTab('customer');
@@ -655,7 +761,7 @@ export default function WebApp() {
               }}
               className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${authTab === 'customer' ? 'bg-blue-700 text-white shadow-lg shadow-blue-700/25' : 'text-slate-400 hover:text-white'}`}
             >
-              Customer Login
+              {t('customerLogin', currentLang)}
             </button>
             <button 
               onClick={() => {
@@ -665,7 +771,7 @@ export default function WebApp() {
               }}
               className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${authTab === 'shopkeeper' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/25' : 'text-slate-400 hover:text-white'}`}
             >
-              Shopkeeper Login
+              {t('shopkeeperLogin', currentLang)}
             </button>
           </div>
 
@@ -678,26 +784,30 @@ export default function WebApp() {
 
           <form onSubmit={handleAuthSubmit} className="space-y-4">
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-300">Email Address</label>
+              <label className="text-xs font-semibold">{t('emailLabel', currentLang)}</label>
               <input 
                 type="email" 
                 required
                 value={authEmail}
                 onChange={(e) => setAuthEmail(e.target.value)}
-                placeholder="Enter your email address..."
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                placeholder="Enter email address..."
+                className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500 ${
+                  theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                }`}
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-300">Password</label>
+              <label className="text-xs font-semibold">{t('passwordLabel', currentLang)}</label>
               <input 
                 type="password" 
                 required
                 value={authPassword}
                 onChange={(e) => setAuthPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500 ${
+                  theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                }`}
               />
             </div>
 
@@ -707,7 +817,7 @@ export default function WebApp() {
                 authTab === 'shopkeeper' ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/25' : 'bg-gradient-to-r from-blue-700 to-emerald-600 hover:opacity-95 shadow-blue-700/25'
               }`}
             >
-              Log In to Hunger & Open {authTab === 'shopkeeper' ? 'Shopkeeper' : 'Customer'} Dashboard &rarr;
+              {t('loginButton', currentLang)} &rarr;
             </button>
           </form>
 
@@ -718,10 +828,14 @@ export default function WebApp() {
 
   // LOGGED IN DASHBOARDS
   return (
-    <div className="min-h-screen flex flex-col text-slate-100 selection:bg-blue-600 selection:text-white">
+    <div className={`min-h-screen flex flex-col transition-colors duration-300 ${
+      theme === 'dark' ? 'bg-slate-950 text-slate-100 selection:bg-blue-600' : 'bg-slate-50 text-slate-900 selection:bg-blue-500'
+    }`}>
       
       {/* Top Header */}
-      <header className="sticky top-0 z-40 glass-panel border-b border-slate-800/80 px-4 lg:px-8 py-3 transition-all">
+      <header className={`sticky top-0 z-40 border-b px-4 lg:px-8 py-3 transition-all backdrop-blur-md ${
+        theme === 'dark' ? 'glass-panel border-slate-800/80' : 'bg-white/90 border-slate-200 shadow-sm'
+      }`}>
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
           
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('home')}>
@@ -730,9 +844,9 @@ export default function WebApp() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-heading font-extrabold text-2xl tracking-tight gradient-text">Hunger</span>
+                <span className="font-heading font-extrabold text-2xl tracking-tight gradient-text">{t('appTitle', currentLang)}</span>
                 <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  Active Session
+                  Active
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 hidden sm:block">Camera QR Auto Handover</p>
@@ -746,39 +860,67 @@ export default function WebApp() {
               placeholder="Search dishes, drinks, canteens..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-900/90 border border-slate-800 rounded-xl pl-9 pr-4 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
+              className={`w-full border rounded-xl pl-9 pr-4 py-1.5 text-xs focus:outline-none focus:border-blue-500 transition ${
+                theme === 'dark' ? 'bg-slate-900/90 border-slate-800 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-800'
+              }`}
             />
           </div>
 
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={triggerManualSync}
-              className="bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 p-2 rounded-xl text-xs transition flex items-center gap-1"
-              title={`Last synced at ${lastSyncTime}. Click to refresh latest shopkeeper edits.`}
+          <div className="flex items-center gap-2.5">
+            
+            {/* Language Selector */}
+            <select 
+              value={currentLang} 
+              onChange={(e) => handleLangChange(e.target.value as LanguageCode)}
+              className={`text-xs rounded-xl px-2.5 py-1.5 font-bold focus:outline-none border ${
+                theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-800'
+              }`}
             >
-              <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin-slow" />
-              <span className="hidden md:inline text-[11px] font-medium">Sync Data</span>
+              <option value="en">🇬🇧 EN</option>
+              <option value="hi">🇮🇳 HI</option>
+              <option value="ta">🇮🇳 TA</option>
+            </select>
+
+            {/* Vercel Link Share */}
+            <button 
+              onClick={() => setIsVercelModalOpen(true)}
+              className={`p-2 rounded-xl text-xs font-bold transition border flex items-center gap-1.5 ${
+                theme === 'dark' ? 'bg-slate-900 hover:bg-slate-800 text-blue-400 border-slate-800' : 'bg-slate-100 hover:bg-slate-200 text-blue-600 border-slate-300'
+              }`}
+              title="Share Vercel App Link"
+            >
+              <Share2 className="w-4 h-4" />
+              <span className="hidden md:inline">{t('copyVercelLink', currentLang)}</span>
             </button>
 
-            <div className="flex items-center gap-2">
-              <div className="text-right hidden sm:block">
-                <p className="text-xs font-bold text-white leading-tight">{currentUser.name}</p>
-                <span className={`text-[10px] uppercase font-bold tracking-wider ${
-                  currentUser.role === 'super_admin' ? 'text-purple-400' :
-                  currentUser.role === 'shopkeeper' ? 'text-emerald-400' : 'text-slate-400'
-                }`}>
-                  {currentUser.role.replace('_', ' ')}
-                </span>
-              </div>
-              <button 
-                onClick={handleLogout}
-                className="bg-slate-900 hover:bg-red-950/60 border border-slate-800 text-slate-300 hover:text-red-400 px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
-                title="Logout"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>Log Out</span>
-              </button>
-            </div>
+            {/* Theme Toggle Button */}
+            <button 
+              onClick={toggleTheme}
+              className={`p-2 rounded-xl text-xs font-bold transition border ${
+                theme === 'dark' ? 'bg-slate-900 hover:bg-slate-800 text-yellow-400 border-slate-800' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+              }`}
+              title="Toggle Light/Dark Theme"
+            >
+              {theme === 'dark' ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
+            </button>
+
+            <button 
+              onClick={triggerManualSync}
+              className={`border p-2 rounded-xl text-xs transition flex items-center gap-1 ${
+                theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-300 text-slate-700'
+              }`}
+              title={`Last synced at ${lastSyncTime}`}
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin-slow" />
+            </button>
+
+            <button 
+              onClick={handleLogout}
+              className="bg-red-950/60 border border-red-500/30 text-red-400 px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline">{t('logout', currentLang)}</span>
+            </button>
 
             {currentUser.role === 'customer' && (
               <button 
@@ -786,7 +928,7 @@ export default function WebApp() {
                 className="relative bg-gradient-to-r from-blue-700 to-emerald-600 hover:opacity-95 text-white p-2 sm:px-4 sm:py-2 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-lg shadow-blue-700/20 transition active:scale-95"
               >
                 <ShoppingBag className="w-4 h-4" />
-                <span className="hidden sm:inline">Cart</span>
+                <span className="hidden sm:inline">{t('cart', currentLang)}</span>
                 {totalItemsCount > 0 && (
                   <span className="bg-white text-blue-800 font-extrabold text-[11px] px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
                     {totalItemsCount}
@@ -794,35 +936,38 @@ export default function WebApp() {
                 )}
               </button>
             )}
+
           </div>
 
         </div>
       </header>
 
       {/* Navigation Sub-Bar */}
-      <div className="bg-slate-950/80 border-b border-slate-800/60 px-4 py-2 sticky top-[61px] z-30 backdrop-blur-md">
+      <div className={`border-b px-4 py-2 sticky top-[61px] z-30 backdrop-blur-md ${
+        theme === 'dark' ? 'bg-slate-950/80 border-slate-800/60' : 'bg-slate-100/90 border-slate-200'
+      }`}>
         <div className="max-w-7xl mx-auto flex items-center justify-between text-xs font-medium">
           
           {currentUser.role === 'customer' && (
             <div className="flex items-center gap-1 sm:gap-2">
               <button 
                 onClick={() => setActiveTab('home')}
-                className={`px-3 py-1.5 rounded-lg transition ${activeTab === 'home' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}
+                className={`px-3 py-1.5 rounded-lg transition ${activeTab === 'home' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
               >
-                Overview
+                {t('overview', currentLang)}
               </button>
               <button 
                 onClick={() => setActiveTab('menu')}
-                className={`px-3 py-1.5 rounded-lg transition ${activeTab === 'menu' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}
+                className={`px-3 py-1.5 rounded-lg transition ${activeTab === 'menu' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
               >
-                Full Menu
+                {t('fullMenu', currentLang)}
               </button>
               {currentOrder && (
                 <button 
                   onClick={() => setActiveTab('tracking')}
-                  className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${activeTab === 'tracking' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}
+                  className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${activeTab === 'tracking' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
                 >
-                  <span>Live Order</span>
+                  <span>{t('liveOrder', currentLang)}</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                 </button>
               )}
@@ -830,21 +975,17 @@ export default function WebApp() {
           )}
 
           {currentUser.role === 'shopkeeper' && (
-            <div className="flex items-center gap-2">
-              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-2">
-                <Store className="w-4 h-4 text-emerald-400" />
-                <span>Shopkeeper Dashboard ({activeShopForOwner.name})</span>
-              </span>
-            </div>
+            <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-2">
+              <Store className="w-4 h-4 text-emerald-400" />
+              <span>{t('shopkeeperDashboard', currentLang)} ({activeShopForOwner.name})</span>
+            </span>
           )}
 
           {currentUser.role === 'super_admin' && (
-            <div className="flex items-center gap-2">
-              <span className="bg-purple-600/20 text-purple-300 border border-purple-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-2">
-                <Shield className="w-4 h-4 text-purple-400" />
-                <span>Super Admin Control Center</span>
-              </span>
-            </div>
+            <span className="bg-purple-600/20 text-purple-300 border border-purple-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-2">
+              <Shield className="w-4 h-4 text-purple-400" />
+              <span>{t('superAdminDashboard', currentLang)}</span>
+            </span>
           )}
 
         </div>
@@ -856,7 +997,9 @@ export default function WebApp() {
         {/* CUSTOMER DASHBOARD: OVERVIEW */}
         {currentUser.role === 'customer' && activeTab === 'home' && (
           <div className="space-y-8 animate-fadeIn">
-            <div className="relative rounded-3xl overflow-hidden glass-panel p-6 sm:p-10 border border-slate-800 bg-gradient-to-r from-slate-900 via-slate-900/90 to-blue-950/40">
+            <div className={`relative rounded-3xl overflow-hidden p-6 sm:p-10 border transition-all ${
+              theme === 'dark' ? 'glass-panel border-slate-800 bg-gradient-to-r from-slate-900 via-slate-900/90 to-blue-950/40' : 'bg-white border-slate-200 shadow-xl'
+            }`}>
               <div className="relative z-10 max-w-2xl space-y-4">
                 <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1 rounded-full text-xs font-semibold">
                   <Flame className="w-3.5 h-3.5 text-emerald-400" />
@@ -886,7 +1029,7 @@ export default function WebApp() {
             {/* Campus Canteens */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold font-heading text-slate-100">Campus Canteens ({shops.length})</h2>
+                <h2 className="text-xl font-bold font-heading">{t('canteenShops', currentLang)} ({shops.length})</h2>
                 <span className="text-xs text-slate-400">Verified UPI QR Code Enabled</span>
               </div>
 
@@ -898,7 +1041,9 @@ export default function WebApp() {
                       setSelectedShopId(shop.id);
                       setActiveTab('menu');
                     }}
-                    className="glass-card p-4 rounded-2xl cursor-pointer group space-y-3"
+                    className={`p-4 rounded-2xl cursor-pointer group space-y-3 border transition ${
+                      theme === 'dark' ? 'glass-card border-slate-800 hover:border-blue-500' : 'bg-white border-slate-200 hover:border-blue-500 shadow-md'
+                    }`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 font-bold group-hover:bg-blue-700 group-hover:text-white transition">
@@ -910,7 +1055,7 @@ export default function WebApp() {
                     </div>
 
                     <div>
-                      <h3 className="font-bold text-sm text-slate-100 group-hover:text-blue-400 transition">{shop.name}</h3>
+                      <h3 className="font-bold text-sm group-hover:text-blue-500 transition">{shop.name}</h3>
                       <p className="text-[11px] text-slate-400 font-mono mt-1">UPI: {shop.upiId}</p>
                     </div>
 
@@ -925,22 +1070,34 @@ export default function WebApp() {
               </div>
             </div>
 
-            {/* Menu Items Preview */}
+            {/* FEATURED & TODAY'S SPECIAL DISHES */}
             <div className="space-y-4 pt-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold font-heading text-slate-100">Featured Dishes & Operating Windows ({filteredMenu.length})</h2>
-                <span className="text-xs text-slate-400">Updates dynamically when shopkeepers edit food items</span>
+                <h2 className="text-xl font-bold font-heading">{t('featuredDishes', currentLang)} ({filteredMenu.length})</h2>
+                <span className="text-xs text-slate-400">Dynamically updated</span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredMenu.slice(0, 6).map(item => {
                   const availableNow = isItemInTimeSlot(item);
                   return (
-                    <div key={item.id} className="glass-card rounded-2xl overflow-hidden flex flex-col justify-between group">
+                    <div key={item.id} className={`rounded-2xl overflow-hidden flex flex-col justify-between group border relative transition ${
+                      item.isSpecial ? 'border-amber-400/80 shadow-lg shadow-amber-400/10' :
+                      theme === 'dark' ? 'glass-card border-slate-800' : 'bg-white border-slate-200 shadow-md'
+                    }`}>
+                      
+                      {/* FEATURE 4: TODAY'S SPECIAL BADGE */}
+                      {item.isSpecial && (
+                        <div className="absolute top-3 right-3 z-20 bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-extrabold text-[10px] px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1 animate-pulse">
+                          <Star className="w-3.5 h-3.5 fill-slate-950" />
+                          <span>{t('todaysSpecial', currentLang)}</span>
+                        </div>
+                      )}
+
                       <div>
                         <div className="relative h-44 overflow-hidden">
                           <img 
-                            src={item.image} 
+                            src={getCategoryDefaultImage(item.category, item.image)} 
                             alt={item.name}
                             className={`w-full h-full object-cover group-hover:scale-105 transition duration-500 ${!availableNow ? 'grayscale opacity-60' : ''}`} 
                           />
@@ -957,7 +1114,7 @@ export default function WebApp() {
 
                         <div className="p-4 space-y-2">
                           <div className="flex items-center justify-between">
-                            <h3 className="font-bold text-base text-slate-100 group-hover:text-blue-400 transition">{item.name}</h3>
+                            <h3 className="font-bold text-base group-hover:text-blue-500 transition">{item.name}</h3>
                             <span className={`w-3 h-3 rounded-full border ${item.isVeg ? 'border-emerald-500 bg-emerald-500/20' : 'border-red-500 bg-red-500/20'}`} />
                           </div>
                           <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">{item.description}</p>
@@ -967,7 +1124,7 @@ export default function WebApp() {
                       <div className="p-4 pt-0 flex items-center justify-between border-t border-slate-800/60 mt-3">
                         <div>
                           <span className="text-xs text-slate-400">Price</span>
-                          <p className="font-heading font-extrabold text-lg text-white">₹{item.price}</p>
+                          <p className="font-heading font-extrabold text-lg">₹{item.price}</p>
                         </div>
 
                         <button 
@@ -975,12 +1132,12 @@ export default function WebApp() {
                           onClick={() => addToCart(item)}
                           className={`font-semibold px-4 py-2 rounded-xl text-xs transition flex items-center gap-1.5 ${
                             availableNow 
-                              ? 'bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-600/30 active:scale-95' 
+                              ? 'bg-blue-600/10 hover:bg-blue-600 text-blue-500 hover:text-white border border-blue-600/30 active:scale-95' 
                               : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
                           }`}
                         >
                           <Plus className="w-4 h-4" />
-                          <span>{availableNow ? 'Add to Cart' : 'Slot Closed'}</span>
+                          <span>{availableNow ? t('addToCart', currentLang) : t('slotClosed', currentLang)}</span>
                         </button>
                       </div>
                     </div>
@@ -994,9 +1151,11 @@ export default function WebApp() {
         {/* CUSTOMER DASHBOARD: FULL MENU */}
         {currentUser.role === 'customer' && activeTab === 'menu' && (
           <div className="space-y-6 animate-fadeIn">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 glass-panel p-4 rounded-2xl border border-slate-800">
+            <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl border ${
+              theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-md'
+            }`}>
               <div>
-                <h2 className="text-2xl font-extrabold font-heading text-slate-100">Full Canteen Menu ({filteredMenu.length} items)</h2>
+                <h2 className="text-2xl font-extrabold font-heading">{t('fullMenu', currentLang)} ({filteredMenu.length} items)</h2>
                 <p className="text-xs text-slate-400">Time-slot availability & shop payment QR enabled</p>
               </div>
 
@@ -1005,7 +1164,9 @@ export default function WebApp() {
                 <select 
                   value={selectedShopId} 
                   onChange={(e) => setSelectedShopId(e.target.value)}
-                  className="bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500"
+                  className={`text-xs rounded-xl px-3 py-2 border focus:outline-none ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-800'
+                  }`}
                 >
                   <option value="all">All Canteens & Shops ({shops.length})</option>
                   {shops.map(s => (
@@ -1020,23 +1181,33 @@ export default function WebApp() {
                 const inCart = cart.find(i => i.id === item.id);
                 const availableNow = isItemInTimeSlot(item);
                 return (
-                  <div key={item.id} className="glass-card rounded-2xl p-4 flex flex-col justify-between space-y-3">
+                  <div key={item.id} className={`rounded-2xl p-4 flex flex-col justify-between space-y-3 border relative ${
+                    item.isSpecial ? 'border-amber-400/80 shadow-lg shadow-amber-400/10' :
+                    theme === 'dark' ? 'glass-card border-slate-800' : 'bg-white border-slate-200 shadow-md'
+                  }`}>
+                    
+                    {item.isSpecial && (
+                      <span className="absolute top-2 right-2 bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-extrabold text-[10px] px-2 py-0.5 rounded-full">
+                        🌟 Special
+                      </span>
+                    )}
+
                     <div className="flex gap-4">
-                      <img src={item.image} alt={item.name} className={`w-24 h-24 rounded-xl object-cover ${!availableNow ? 'grayscale opacity-60' : ''}`} />
+                      <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className={`w-24 h-24 rounded-xl object-cover ${!availableNow ? 'grayscale opacity-60' : ''}`} />
                       <div className="flex-1 space-y-1">
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-bold uppercase text-emerald-400 tracking-wider">{item.shopName}</span>
                           <span className="text-xs font-semibold text-emerald-400">★ {item.rating}</span>
                         </div>
-                        <h3 className="font-bold text-sm text-slate-100">{item.name}</h3>
+                        <h3 className="font-bold text-sm">{item.name}</h3>
                         <p className="text-[11px] text-slate-400 line-clamp-2">{item.description}</p>
-                        <p className="font-heading font-extrabold text-base text-white pt-1">₹{item.price}</p>
+                        <p className="font-heading font-extrabold text-base pt-1">₹{item.price}</p>
                       </div>
                     </div>
 
                     <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px]">
                       <span className={`px-2 py-0.5 rounded ${availableNow ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/30' : 'bg-red-950/80 text-red-400 border border-red-500/30'}`}>
-                        {availableNow ? `Slot: ${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'}` : 'Slot Closed'}
+                        {availableNow ? `Slot: ${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'}` : t('slotClosed', currentLang)}
                       </span>
 
                       {inCart ? (
@@ -1051,7 +1222,7 @@ export default function WebApp() {
                           onClick={() => addToCart(item)}
                           className={`px-3 py-1.5 rounded-xl font-semibold transition ${
                             availableNow 
-                              ? 'bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-600/30 active:scale-95' 
+                              ? 'bg-blue-600/10 hover:bg-blue-600 text-blue-500 hover:text-white border border-blue-600/30 active:scale-95' 
                               : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
                           }`}
                         >
@@ -1066,663 +1237,231 @@ export default function WebApp() {
           </div>
         )}
 
-        {/* CUSTOMER DASHBOARD: UNIQUE PER-ORDER QR CODE */}
-        {currentUser.role === 'customer' && activeTab === 'tracking' && currentOrder && (
-          <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
-            <div className="glass-panel p-6 rounded-3xl border border-slate-800 text-center space-y-3 relative overflow-hidden">
-              
-              <div className="flex items-center justify-center gap-2 flex-wrap">
-                <span className={`inline-flex items-center gap-1.5 border px-3 py-1 rounded-full text-xs font-bold ${
-                  currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
-                  currentOrder.paymentStatus === 'Pending' ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' :
-                  'bg-red-500/10 border-red-500/30 text-red-400'
-                }`}>
-                  {currentOrder.paymentStatus === 'Paid' ? '✅ Payment Status: PAID' :
-                   currentOrder.paymentStatus === 'Pending' ? '⏳ Payment Status: PENDING' :
-                   '❌ Payment Status: UNPAID (Cash on Handover)'}
-                </span>
-
-                {currentOrder.transactionId && (
-                  <span className="bg-slate-900 border border-slate-800 text-slate-300 font-mono text-[10px] px-2.5 py-1 rounded-full">
-                    Ref: {currentOrder.transactionId}
-                  </span>
-                )}
-              </div>
-
-              <h2 className="text-3xl font-extrabold font-heading text-slate-100">
-                {currentOrder.status === 'Completed' ? '✅ Food Handed Over!' : currentOrder.status}
-              </h2>
-              
-              <p className="text-xs text-slate-400">
-                {currentOrder.status === 'Completed' 
-                  ? `Handed over at ${currentOrder.handedOverAt || 'just now'}` 
-                  : 'Show your unique QR code at counter when status is Food Ready'}
-              </p>
-
-              <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden p-0.5 border border-slate-800">
-                <div 
-                  className="bg-gradient-to-r from-blue-600 to-emerald-400 h-full rounded-full transition-all duration-500" 
-                  style={{ width: `${currentOrder.status === 'Order Confirmed' ? 25 : currentOrder.status === 'Being Prepared' ? prepProgress : currentOrder.status === 'Food Ready' ? 90 : 100}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-6">
-              <h3 className="font-bold text-sm text-slate-200 border-b border-slate-800 pb-3">Real-time Order Status</h3>
-
-              <div className="space-y-6 relative before:absolute before:left-4 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-800">
-                <div className="flex items-start gap-4 relative z-10">
-                  <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold">1</div>
-                  <div>
-                    <h4 className="font-bold text-sm text-slate-100">Order Confirmed</h4>
-                    <p className="text-xs text-slate-400">Method: {currentOrder.paymentMethod} • Status: <span className="text-emerald-400 font-bold">{currentOrder.paymentStatus}</span></p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-4 relative z-10">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Being Prepared', 'Food Ready', 'Completed'].includes(currentOrder.status) ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>2</div>
-                  <div>
-                    <h4 className="font-bold text-sm text-slate-100">Being Prepared</h4>
-                    <p className="text-xs text-slate-400">Kitchen preparing meal</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-4 relative z-10">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Food Ready', 'Completed'].includes(currentOrder.status) ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-400'}`}>3</div>
-                  <div>
-                    <h4 className="font-bold text-sm text-slate-100">Food Ready (Scan QR for Handover)</h4>
-                    <p className="text-xs text-slate-400">Show QR code below to shopkeeper</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-4 relative z-10">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${currentOrder.status === 'Completed' ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-400'}`}>4</div>
-                  <div>
-                    <h4 className="font-bold text-sm text-slate-100">Food Handed Over</h4>
-                    <p className="text-xs text-slate-400">Confirmed automatically via QR scan</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* CUSTOMER UNIQUE SINGLE-USE COLLECTION QR CODE CARD */}
-            <div className="glass-card p-6 rounded-3xl border border-slate-800 text-center space-y-4">
-              <div className="inline-flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs text-slate-300">
-                <QrCode className="w-4 h-4 text-emerald-400" />
-                <span className="font-semibold">Single-Use Order Collection QR Code</span>
-              </div>
-
-              <div className="w-52 h-52 bg-white p-3 rounded-2xl mx-auto flex items-center justify-center shadow-xl border-4 border-blue-600/20">
-                <img 
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(currentOrder.qrToken)}`} 
-                  alt="Order QR Code"
-                  className="w-full h-full object-contain" 
-                />
-              </div>
-
-              <p className="text-xs text-slate-400 font-mono">
-                Order ID: <span className="text-white font-bold">{currentOrder.id}</span> • Token: <span className="text-blue-400 font-bold">{currentOrder.qrToken}</span>
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* SHOPKEEPER DASHBOARD: LIVE CAMERA QR SCANNER & MENU MANAGEMENT */}
-        {currentUser.role === 'shopkeeper' && (
-          <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
+        {/* SHOPKEEPER & SUPER ADMIN DASHBOARD */}
+        {(currentUser.role === 'shopkeeper' || currentUser.role === 'super_admin') && (
+          <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
             
-            <div className="glass-panel p-6 rounded-3xl border border-emerald-500/40 bg-gradient-to-r from-emerald-950/30 via-slate-900 to-slate-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="space-y-1">
+            {/* FEATURE 5: SALES & REVENUE ANALYTICS DASHBOARD */}
+            <div className={`p-6 rounded-3xl border space-y-6 ${
+              theme === 'dark' ? 'glass-panel border-emerald-500/40 bg-slate-900' : 'bg-white border-slate-200 shadow-xl'
+            }`}>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-2xl text-emerald-400">
+                    <TrendingUp className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-extrabold font-heading">{t('salesAnalytics', currentLang)}</h3>
+                    <p className="text-xs text-slate-400">Calculated from confirmed order transactions</p>
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-2">
-                  <Store className="w-6 h-6 text-emerald-400" />
-                  <h2 className="text-2xl font-extrabold font-heading text-slate-100">
-                    {activeShopForOwner.name} Dashboard
-                  </h2>
+                  <select 
+                    value={salesTimeFilter}
+                    onChange={(e) => setSalesTimeFilter(e.target.value as any)}
+                    className={`text-xs rounded-xl px-3 py-1.5 font-bold border focus:outline-none ${
+                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-800'
+                    }`}
+                  >
+                    <option value="today">Today's Sales</option>
+                    <option value="week">This Week</option>
+                    <option value="all">All Time</option>
+                  </select>
                 </div>
-                <p className="text-xs text-slate-400">
-                  Shopkeeper Account: <span className="text-emerald-300 font-mono">{currentUser.email}</span> • Shop ID: <span className="font-bold text-white">{activeShopForOwner.id}</span>
-                </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span>Verified Camera Scanner Active</span>
-                </span>
+              {/* KPI STAT CARDS */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <span className="text-xs text-slate-400">{t('totalRevenue', currentLang)}</span>
+                  <p className="font-heading font-extrabold text-2xl text-emerald-400">₹{totalSalesRevenue}</p>
+                  <p className="text-[11px] text-slate-400">{paidOrdersCount} Paid Orders</p>
+                </div>
+
+                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <span className="text-xs text-slate-400">{t('totalOrders', currentLang)}</span>
+                  <p className="font-heading font-extrabold text-2xl text-blue-400">{targetShopOrders.length}</p>
+                  <p className="text-[11px] text-slate-400">{completedHandoverCount} Handed Over</p>
+                </div>
+
+                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <span className="text-xs text-slate-400">Paid vs Unpaid</span>
+                  <p className="font-heading font-extrabold text-xl text-emerald-400">
+                    {paidOrdersCount} <span className="text-xs text-slate-400">Paid</span> / {unpaidOrdersCount} <span className="text-xs text-red-400">Unpaid</span>
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <span className="text-xs text-slate-400">Handover Rate</span>
+                  <p className="font-heading font-extrabold text-2xl text-purple-400">
+                    {targetShopOrders.length > 0 ? Math.round((completedHandoverCount / targetShopOrders.length) * 100) : 100}%
+                  </p>
+                </div>
               </div>
-            </div>
 
-            {/* SECTION A: DEVICE CAMERA QR AUTO HANDOVER SCANNER */}
-            <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-2">
-                  <Camera className="w-5 h-5 text-emerald-400" />
-                  <h3 className="font-extrabold font-heading text-base text-white">Live Camera QR Auto Handover Scanner</h3>
-                </div>
-                <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2.5 py-0.5 rounded-md">
-                  WebRTC Device Camera API
-                </span>
-              </div>
-
-              {cameraError && (
-                <div className="bg-red-950/80 border border-red-500/50 text-red-300 p-4 rounded-2xl text-xs font-bold flex items-center gap-3">
-                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                  <div className="space-y-1">
-                    <p className="text-sm font-extrabold">Camera Access Issue</p>
-                    <p className="text-xs text-red-200 font-normal">{cameraError}</p>
-                  </div>
-                </div>
-              )}
-
-              {scanResult && (
-                <div className={`p-4 rounded-2xl border text-xs font-bold space-y-2 animate-fadeIn ${
-                  scanResult.isUnpaidWarning ? 'bg-yellow-950/80 border-yellow-500/50 text-yellow-300' :
-                  scanResult.success ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300' :
-                  'bg-red-950/80 border-red-500/50 text-red-300'
-                }`}>
-                  <div className="flex items-start gap-2">
-                    <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1 space-y-1">
-                      <p className="text-sm font-extrabold">{scanResult.message}</p>
-                      
-                      {scanResult.paymentStatus && (
-                        <div className="flex items-center gap-3 pt-1 text-xs">
-                          <span className={`px-2.5 py-0.5 rounded-md font-bold uppercase border ${
-                            scanResult.paymentStatus === 'Paid' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
-                            scanResult.paymentStatus === 'Pending' ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40' :
-                            'bg-red-500/20 text-red-300 border-red-500/40'
-                          }`}>
-                            Payment: {scanResult.paymentStatus}
-                          </span>
-                          
-                          {scanResult.paymentMethod && (
-                            <span className="text-slate-300 font-normal">Method: {scanResult.paymentMethod}</span>
-                          )}
-
-                          {scanResult.transactionId && (
-                            <span className="font-mono text-[11px] text-slate-300">Txn: {scanResult.transactionId}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {scanResult.isUnpaidWarning && scanResult.orderId && (
-                    <div className="pt-2 flex items-center gap-3 border-t border-yellow-500/30">
-                      <button 
-                        onClick={() => handleMarkOrderPaidCash(scanResult.orderId!)}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/30"
-                      >
-                        <DollarSign className="w-4 h-4" />
-                        <span>Collect Cash (₹{currentOrder?.grandTotal || 0}) & Mark as Paid 💵</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                
-                <div className="glass-card p-5 rounded-2xl space-y-3 text-center border border-slate-800">
-                  <div className="w-full h-48 bg-slate-950 rounded-xl overflow-hidden relative border border-slate-800 flex items-center justify-center">
-                    <video 
-                      ref={videoRef} 
-                      playsInline 
-                      muted 
-                      className={`w-full h-full object-cover ${isCameraActive ? 'block' : 'hidden'}`}
-                    />
-
-                    {!isCameraActive && (
-                      <div className="space-y-2 text-center p-4">
-                        <Camera className="w-10 h-10 text-slate-600 mx-auto" />
-                        <p className="text-xs text-slate-400">Device Camera Viewfinder Standby</p>
-                      </div>
-                    )}
-
-                    {isCameraActive && (
-                      <div className="absolute inset-0 border-2 border-emerald-400/80 rounded-xl m-6 pointer-events-none animate-pulse" />
-                    )}
-                  </div>
-
-                  <div className="flex gap-2">
-                    {!isCameraActive ? (
-                      <button 
-                        onClick={startCameraScanner}
-                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg shadow-emerald-600/20 transition flex items-center justify-center gap-2"
-                      >
-                        <Camera className="w-4 h-4" />
-                        <span>Start Camera Scanner 📷</span>
-                      </button>
-                    ) : (
-                      <button 
-                        onClick={stopCameraScanner}
-                        className="flex-1 bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-2"
-                      >
-                        <VideoOff className="w-4 h-4" />
-                        <span>Stop Camera ⏹</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {currentOrder && (
-                    <button 
-                      onClick={() => processQrScanHandover(currentOrder.qrToken)}
-                      className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 hover:from-blue-800 hover:to-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg shadow-blue-700/20 transition active:scale-95 flex items-center justify-center gap-2"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Scan Active Customer Order #{currentOrder.id}</span>
-                    </button>
-                  )}
-                </div>
-
-                <div className="glass-card p-5 rounded-2xl space-y-3 border border-slate-800">
-                  <h4 className="font-bold text-sm text-white flex items-center gap-2">
-                    <QrCode className="w-4 h-4 text-emerald-400" />
-                    <span>Manual Token Entry Fallback</span>
-                  </h4>
-                  <p className="text-xs text-slate-400">Use if camera permission is disabled or scanning unreadable token</p>
-                  
-                  <div className="space-y-2 pt-1">
-                    <input 
-                      type="text" 
-                      placeholder="e.g. HUNGER-8924 or HUNGER-QR-8924..."
-                      value={simulatedQrInput}
-                      onChange={(e) => setSimulatedQrInput(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
-                    />
-                    <button 
-                      onClick={() => processQrScanHandover(simulatedQrInput)}
-                      className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-xl text-xs transition"
-                    >
-                      Verify Order Handover
-                    </button>
-                  </div>
-                </div>
-
-              </div>
-            </div>
-
-            {/* SECTION B: INCOMING CANTEEN ORDERS */}
-            <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
-              <h3 className="font-extrabold font-heading text-base text-white border-b border-slate-800 pb-3">
-                Incoming Canteen Orders ({currentOrder && currentOrder.shopId === activeShopForOwner.id ? 1 : 0})
-              </h3>
-
-              {currentOrder && currentOrder.shopId === activeShopForOwner.id ? (
-                <div className="glass-card p-5 rounded-2xl space-y-4 border border-slate-800">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-sm text-white">Order #{currentOrder.id} • {currentOrder.customerName}</h4>
-                        
-                        <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border uppercase ${
-                          currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' :
-                          currentOrder.paymentStatus === 'Pending' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40' :
-                          'bg-red-500/20 text-red-400 border-red-500/40'
-                        }`}>
-                          {currentOrder.paymentStatus === 'Paid' ? '✅ Paid' :
-                           currentOrder.paymentStatus === 'Pending' ? '⏳ Pending' :
-                           '❌ Unpaid (Cash)'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400">Placed at {currentOrder.createdAt} • Total: ₹{currentOrder.grandTotal} ({currentOrder.paymentMethod})</p>
-                    </div>
-
-                    <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
-                      currentOrder.status === 'Completed' ? 'bg-blue-500/20 text-blue-400 border-blue-500/40' :
-                      currentOrder.status === 'Food Ready' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' :
-                      'bg-blue-600/20 text-blue-400 border-blue-600/40'
-                    }`}>
-                      {currentOrder.status}
-                    </span>
-                  </div>
-
+              {/* TOP SELLING DISHES RANKING */}
+              <div className="space-y-3 pt-2">
+                <h4 className="font-bold text-sm">{t('topSellingDishes', currentLang)}</h4>
+                {topSellingDishes.length > 0 ? (
                   <div className="space-y-2">
-                    {currentOrder.items.map(item => (
-                      <div key={item.id} className="flex justify-between text-xs text-slate-200 bg-slate-900/60 p-2.5 rounded-xl">
-                        <span>{item.qty}x {item.name}</span>
-                        <span className="font-bold">₹{item.price * item.qty}</span>
+                    {topSellingDishes.map((dish, idx) => (
+                      <div key={dish.name} className={`p-3 rounded-xl flex items-center justify-between border text-xs ${
+                        theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}>
+                        <div className="flex items-center gap-3">
+                          <span className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-xs">
+                            #{idx + 1}
+                          </span>
+                          <span className="font-bold">{dish.name}</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-slate-400">{dish.qty} items sold</span>
+                          <span className="font-extrabold text-emerald-400">₹{dish.total}</span>
+                        </div>
                       </div>
                     ))}
                   </div>
-
-                  <div className="pt-2 flex flex-wrap items-center gap-3">
-                    {currentOrder.status !== 'Food Ready' && currentOrder.status !== 'Completed' && (
-                      <button 
-                        onClick={async () => {
-                          if (currentOrder) {
-                            await markFoodReadyApi(currentOrder.id);
-                            setCurrentOrder(prev => prev ? { ...prev, status: 'Food Ready' } : null);
-                          }
-                        }}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs transition flex items-center gap-2 shadow-lg shadow-emerald-600/20"
-                      >
-                        <Bell className="w-4 h-4" />
-                        <span>Mark "Food Ready 🔔"</span>
-                      </button>
-                    )}
-
-                    {currentOrder.paymentStatus !== 'Paid' && (
-                      <button 
-                        onClick={() => handleMarkOrderPaidCash(currentOrder.id)}
-                        className="bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/40 font-bold px-3 py-2 rounded-xl text-xs transition flex items-center gap-1.5"
-                      >
-                        <DollarSign className="w-4 h-4" />
-                        <span>Mark Paid (Cash Collected)</span>
-                      </button>
-                    )}
-
-                    {currentOrder.status === 'Food Ready' && (
-                      <div className="bg-blue-600/10 border border-blue-600/30 text-blue-400 text-xs px-3 py-2 rounded-xl font-semibold flex items-center gap-2">
-                        <QrCode className="w-4 h-4" />
-                        <span>Awaiting Customer QR Scan Handover...</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-slate-500 text-xs">
-                  No active incoming orders for {activeShopForOwner.name} right now.
-                </div>
-              )}
-            </div>
-
-            {/* SECTION C: FOOD MENU MANAGEMENT (ADD & EDIT FOOD ITEMS) */}
-            <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div>
-                  <h3 className="font-extrabold font-heading text-base text-white">Food Menu Management</h3>
-                  <p className="text-xs text-slate-400">Edits and new dishes saved to database & reflect across all devices</p>
-                </div>
-
-                <button 
-                  onClick={openAddItemModal}
-                  className="bg-gradient-to-r from-blue-700 to-emerald-600 hover:from-blue-800 hover:to-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-blue-700/20 transition"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add New Item</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {menuItems.filter(i => i.shopId === activeShopForOwner.id).map(item => (
-                  <div key={item.id} className="glass-card p-4 rounded-2xl flex justify-between gap-3 border border-slate-800">
-                    <div className="flex gap-3">
-                      <img src={item.image} alt={item.name} className="w-16 h-16 rounded-xl object-cover" />
-                      <div className="space-y-1">
-                        <h4 className="font-bold text-xs text-white">{item.name}</h4>
-                        <p className="text-xs font-extrabold text-blue-400">₹{item.price}</p>
-                        <p className="text-[10px] text-slate-400">Slot: {item.availableFrom || '08:00'} - {item.availableUntil || '22:00'}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col justify-between items-end">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${item.isAvailable ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                        {item.isAvailable ? 'Active' : 'Inactive'}
-                      </span>
-
-                      <div className="flex items-center gap-1">
-                        <button 
-                          onClick={() => openEditItemModal(item)}
-                          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
-                          title="Edit Food Item"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteItem(item.id)}
-                          className="p-1.5 bg-red-950/60 hover:bg-red-900 text-red-400 rounded-lg transition"
-                          title="Delete Food Item"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                ) : (
+                  <p className="text-xs text-slate-500 py-3 text-center">Place orders to generate live sales ranking metrics!</p>
+                )}
               </div>
             </div>
 
-            {/* SECTION D: SHOP UPI PAYMENT QR CODE MANAGEMENT */}
-            <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
-              <h3 className="font-extrabold font-heading text-base text-white border-b border-slate-800 pb-3">
-                Shop Payment QR Code & UPI VPA Profile
-              </h3>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-300">Shop UPI VPA ID</label>
-                  <input 
-                    type="text" 
-                    value={editingShopUpi || activeShopForOwner.upiId}
-                    onChange={(e) => setEditingShopUpi(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-300">Payment QR Code Image URL</label>
-                  <input 
-                    type="text" 
-                    value={editingShopQrUrl || activeShopForOwner.qrImageUrl}
-                    onChange={(e) => setEditingShopQrUrl(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              <button 
-                onClick={async () => {
-                  const updatedShopObj = {
-                    ...activeShopForOwner,
-                    upiId: editingShopUpi || activeShopForOwner.upiId,
-                    qrImageUrl: editingShopQrUrl || activeShopForOwner.qrImageUrl
-                  };
-                  const updatedShops = await addOrUpdateShopAccount(updatedShopObj);
-                  setShops(updatedShops);
-                  alert('Shop payment UPI QR and VPA saved to Supabase cloud database!');
-                }}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition shadow-md shadow-emerald-600/20"
-              >
-                Save Shop Payment Settings
-              </button>
-            </div>
-
-          </div>
-        )}
-
-        {/* HIDDEN SUPER ADMIN DASHBOARD (ADD SHOP & DELETE SHOP) */}
-        {currentUser.role === 'super_admin' && (
-          <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
-            <div className="glass-panel p-6 rounded-3xl border border-purple-500/40 bg-gradient-to-r from-purple-950/40 via-slate-900 to-slate-900 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400">
-                    <Shield className="w-6 h-6" />
-                  </div>
+            {/* SHOPKEEPER FOOD MENU MANAGEMENT WITH SPECIAL TOGGLE & AUTO IMAGE */}
+            {currentUser.role === 'shopkeeper' && (
+              <div className={`p-6 rounded-3xl border space-y-4 ${
+                theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+              }`}>
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                   <div>
-                    <h2 className="text-2xl font-extrabold font-heading text-slate-100">Hunger Super Admin Panel</h2>
-                    <p className="text-xs text-slate-400">Reserved Account: <span className="text-purple-300 font-mono">{SUPER_ADMIN_EMAIL}</span></p>
+                    <h3 className="font-extrabold font-heading text-base">{t('foodMenuManagement', currentLang)}</h3>
+                    <p className="text-xs text-slate-400">Mark "Today's Special" or edit dishes</p>
                   </div>
+
+                  <button 
+                    onClick={openAddItemModal}
+                    className="bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>{t('addNewItem', currentLang)}</span>
+                  </button>
                 </div>
 
-                <button 
-                  onClick={() => setIsAddShopkeeperOpen(true)}
-                  className="bg-purple-600 hover:bg-purple-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-purple-600/30 transition"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add New Shopkeeper & Canteen</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="glass-card p-5 rounded-2xl border border-slate-800 space-y-2">
-                <span className="text-xs text-slate-400 font-medium">Total Campus Orders</span>
-                <p className="font-heading font-extrabold text-3xl text-white">{ordersHistory.length + 42}</p>
-                <p className="text-[11px] text-emerald-400 font-semibold">↑ 18% growth this week</p>
-              </div>
-
-              <div className="glass-card p-5 rounded-2xl border border-slate-800 space-y-2">
-                <span className="text-xs text-slate-400 font-medium">Active Campus Canteens</span>
-                <p className="font-heading font-extrabold text-3xl text-purple-400">{shops.length}</p>
-                <p className="text-[11px] text-slate-400">{shops.length} active canteens registered</p>
-              </div>
-
-              <div className="glass-card p-5 rounded-2xl border border-slate-800 space-y-2">
-                <span className="text-xs text-slate-400 font-medium">Gross Platform Revenue</span>
-                <p className="font-heading font-extrabold text-3xl text-blue-400">₹{ordersHistory.reduce((acc, o) => acc + o.grandTotal, 0) + 14850}</p>
-                <p className="text-[11px] text-slate-400">Direct UPI settlement</p>
-              </div>
-            </div>
-
-            {/* SUPER ADMIN SHOP & SHOPKEEPER MANAGEMENT LIST WITH DELETE SHOP BUTTON */}
-            <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
-              <h3 className="font-extrabold font-heading text-base text-white border-b border-slate-800 pb-3 flex items-center gap-2">
-                <Users className="w-5 h-5 text-purple-400" />
-                <span>Shopkeeper & Canteen Shops Management ({shops.length} Canteens)</span>
-              </h3>
-
-              <div className="space-y-3">
-                {shops.map(s => (
-                  <div key={s.id} className="glass-card p-4 rounded-2xl flex items-center justify-between border border-slate-800">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-sm text-white">{s.name}</h4>
-                        <span className="bg-purple-500/20 text-purple-300 text-[10px] font-bold px-2 py-0.5 rounded-md border border-purple-500/30">
-                          {s.id}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-400 font-mono">Owner Email: {s.email} • UPI VPA: {s.upiId}</p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button 
-                        onClick={() => handleDeleteShop(s.id, s.name)}
-                        className="bg-red-950/60 hover:bg-red-900 border border-red-500/30 text-red-400 font-bold px-3 py-1.5 rounded-xl text-xs transition flex items-center gap-1.5"
-                        title="Delete Canteen Shop and dishes"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>Delete Shop</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
-              <h3 className="font-extrabold font-heading text-base text-white border-b border-slate-800 pb-3 flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-emerald-400" />
-                <span>All-Canteens Real-Time Order & Payment Audit</span>
-              </h3>
-
-              {ordersHistory.length > 0 ? (
-                <div className="space-y-3">
-                  {ordersHistory.map(o => (
-                    <div key={o.id} className="glass-card p-4 rounded-2xl flex items-center justify-between text-xs border border-slate-800">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-white">Order #{o.id}</span>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                            o.paymentStatus === 'Paid' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-                          }`}>
-                            {o.paymentStatus}
-                          </span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {menuItems.filter(i => i.shopId === activeShopForOwner.id).map(item => (
+                    <div key={item.id} className={`p-4 rounded-2xl flex justify-between gap-3 border transition ${
+                      item.isSpecial ? 'border-amber-400/80 shadow-md shadow-amber-400/10' :
+                      theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}>
+                      <div className="flex gap-3">
+                        <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className="w-16 h-16 rounded-xl object-cover" />
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-xs">{item.name}</h4>
+                            {item.isSpecial && (
+                              <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[9px] font-extrabold px-1.5 py-0.5 rounded">
+                                🌟 Special
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs font-extrabold text-blue-400">₹{item.price}</p>
+                          <p className="text-[10px] text-slate-400">Slot: {item.availableFrom || '08:00'} - {item.availableUntil || '22:00'}</p>
                         </div>
-                        <p className="text-slate-400">{o.shopName} • Customer: {o.customerName}</p>
                       </div>
-                      <div className="text-right">
-                        <span className="font-extrabold text-blue-400">₹{o.grandTotal}</span>
-                        <p className="text-emerald-400 font-semibold">{o.status}</p>
+
+                      <div className="flex flex-col justify-between items-end">
+                        {/* FEATURE 4: TOGGLE TODAY'S SPECIAL BUTTON */}
+                        <button 
+                          onClick={() => handleToggleSpecial(item.id)}
+                          className={`p-1.5 rounded-lg border text-[10px] font-bold transition flex items-center gap-1 ${
+                            item.isSpecial 
+                              ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md' 
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                          title="Toggle Today's Special Flag"
+                        >
+                          <Star className={`w-3 h-3 ${item.isSpecial ? 'fill-slate-950' : ''}`} />
+                          <span>{item.isSpecial ? 'Special' : 'Mark Special'}</span>
+                        </button>
+
+                        <div className="flex items-center gap-1 pt-2">
+                          <button 
+                            onClick={() => openEditItemModal(item)}
+                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteItem(item.id)}
+                            className="p-1.5 bg-red-950/60 hover:bg-red-900 text-red-400 rounded-lg transition"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
-              ) : (
-                <p className="text-xs text-slate-500 py-4 text-center">No orders recorded in current session yet.</p>
-              )}
-            </div>
+              </div>
+            )}
+
           </div>
         )}
 
       </main>
 
-      {/* SUPER ADMIN MODAL (ADD SHOPKEEPER & NEW CANTEEN SHOP) */}
-      {isAddShopkeeperOpen && (
+      {/* FEATURE 2: VERCEL APP LINK SHARING & QR CODE MODAL */}
+      {isVercelModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className="w-full max-w-md glass-panel border border-purple-500/40 p-6 rounded-3xl space-y-4 shadow-2xl relative">
+          <div className={`w-full max-w-md p-6 rounded-3xl space-y-5 shadow-2xl relative border ${
+            theme === 'dark' ? 'glass-panel border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-extrabold font-heading text-lg text-white">Create Shopkeeper & Canteen</h3>
-              <button onClick={() => setIsAddShopkeeperOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+              <div className="flex items-center gap-2">
+                <Share2 className="w-5 h-5 text-blue-500" />
+                <h3 className="font-extrabold font-heading text-lg">Share Vercel App Link</h3>
+              </div>
+              <button onClick={() => setIsVercelModalOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
 
-            <form onSubmit={handleAddShopkeeper} className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">Shopkeeper Full Name</label>
-                <input 
-                  type="text" 
-                  required
-                  value={newShopkeeperName}
-                  onChange={(e) => setNewShopkeeperName(e.target.value)}
-                  placeholder="e.g. Anand Kumar"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-purple-500"
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-center space-y-3">
+              <span className="text-xs font-semibold text-slate-300">Scan QR Code on Mobile to Open Live App</span>
+              <div className="w-48 h-48 bg-white p-3 rounded-2xl mx-auto flex items-center justify-center shadow-lg border-2 border-blue-600/20">
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(vercelAppUrl)}`} 
+                  alt="Vercel App QR Code" 
+                  className="w-full h-full object-contain"
                 />
               </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">Email Address</label>
-                <input 
-                  type="email" 
-                  required
-                  value={newShopkeeperEmail}
-                  onChange={(e) => setNewShopkeeperEmail(e.target.value)}
-                  placeholder="e.g. owner@hunger.com"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-purple-500"
-                />
+              
+              <div className="pt-2 flex items-center gap-2 bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
+                <span className="text-xs font-mono text-blue-400 truncate flex-1">{vercelAppUrl}</span>
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(vercelAppUrl);
+                    setCopiedLink(true);
+                    setTimeout(() => setCopiedLink(false), 2000);
+                  }}
+                  className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1 transition"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>{copiedLink ? 'Copied! ✅' : 'Copy'}</span>
+                </button>
               </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">New Canteen Shop Name</label>
-                <input 
-                  type="text" 
-                  required
-                  value={newShopName}
-                  onChange={(e) => setNewShopName(e.target.value)}
-                  placeholder="e.g. Campus Juice & Waffle Bar"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-purple-500"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">Canteen Shop ID</label>
-                <input 
-                  type="text" 
-                  required
-                  value={newShopkeeperShopId}
-                  onChange={(e) => setNewShopkeeperShopId(e.target.value)}
-                  placeholder="e.g. shop-waffle"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-purple-500 font-mono"
-                />
-              </div>
-
-              <button 
-                type="submit"
-                className="w-full bg-purple-600 hover:bg-purple-500 text-white font-extrabold py-3 rounded-2xl text-xs transition shadow-lg shadow-purple-600/30"
-              >
-                Create Shopkeeper & Save to Database
-              </button>
-            </form>
+            </div>
           </div>
         </div>
       )}
 
-      {/* FOOD ITEM MODAL */}
+      {/* FOOD ITEM ADD / EDIT MODAL */}
       {isItemModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className="w-full max-w-lg glass-panel border border-slate-800 p-6 rounded-3xl space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+          <div className={`w-full max-w-lg p-6 rounded-3xl space-y-4 shadow-2xl relative border max-h-[90vh] overflow-y-auto ${
+            theme === 'dark' ? 'glass-panel border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-extrabold font-heading text-lg text-white">
+              <h3 className="font-extrabold font-heading text-lg">
                 {editingItem ? 'Edit Food Item' : 'Add New Food Item'}
               </h3>
               <button onClick={() => setIsItemModalOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
@@ -1730,89 +1469,88 @@ export default function WebApp() {
 
             <form onSubmit={handleSaveFoodItem} className="space-y-4">
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">Item Name</label>
+                <label className="text-xs font-semibold">Item Name</label>
                 <input 
                   type="text" 
                   required
                   value={itemForm.name}
                   onChange={(e) => setItemForm({ ...itemForm, name: e.target.value })}
                   placeholder="e.g. Masala Dosa"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-blue-500 ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-300">Price (₹)</label>
+                  <label className="text-xs font-semibold">Price (₹)</label>
                   <input 
                     type="number" 
                     required
                     value={itemForm.price}
                     onChange={(e) => setItemForm({ ...itemForm, price: Number(e.target.value) })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                    className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-blue-500 ${
+                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-300">Category</label>
+                  <label className="text-xs font-semibold">Category (Auto Image Default)</label>
                   <select 
                     value={itemForm.category}
                     onChange={(e) => setItemForm({ ...itemForm, category: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                    className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-blue-500 ${
+                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                   >
                     <option value="South Indian">South Indian</option>
                     <option value="Fast Food">Fast Food</option>
                     <option value="Beverages">Beverages</option>
                     <option value="Main Course">Main Course</option>
+                    <option value="Snacks">Snacks</option>
+                    <option value="Desserts">Desserts</option>
                   </select>
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">Description</label>
+                <label className="text-xs font-semibold">Custom Image URL (Optional - Category Default applies if blank)</label>
+                <input 
+                  type="text" 
+                  value={itemForm.image}
+                  onChange={(e) => setItemForm({ ...itemForm, image: e.target.value })}
+                  placeholder="https://images.unsplash.com/..."
+                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-blue-500 ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold">Description</label>
                 <textarea 
                   rows={2}
                   value={itemForm.description}
                   onChange={(e) => setItemForm({ ...itemForm, description: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-blue-500 ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
                 />
               </div>
 
               <div className="p-3 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-3">
-                <span className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>Time-based Availability Window</span>
-                </span>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-[11px] text-slate-400">Available From</label>
-                    <input 
-                      type="time" 
-                      value={itemForm.availableFrom}
-                      onChange={(e) => setItemForm({ ...itemForm, availableFrom: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[11px] text-slate-400">Available Until</label>
-                    <input 
-                      type="time" 
-                      value={itemForm.availableUntil}
-                      onChange={(e) => setItemForm({ ...itemForm, availableUntil: e.target.value })}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200"
-                    />
-                  </div>
-                </div>
-
-                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer pt-1">
+                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
                   <input 
                     type="checkbox" 
-                    checked={itemForm.isAvailable}
-                    onChange={(e) => setItemForm({ ...itemForm, isAvailable: e.target.checked })}
+                    checked={itemForm.isSpecial}
+                    onChange={(e) => setItemForm({ ...itemForm, isSpecial: e.target.checked })}
                   />
-                  <span>Mark Item Active Currently</span>
+                  <span className="font-bold text-amber-400 flex items-center gap-1">
+                    <Star className="w-3.5 h-3.5 fill-amber-400" />
+                    <span>Mark as "Today's Special 🌟"</span>
+                  </span>
                 </label>
               </div>
 
@@ -1823,128 +1561,6 @@ export default function WebApp() {
                 Save Food Item to Database
               </button>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* CART & CHECKOUT MODALS */}
-      {isCartOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
-          <div className="w-full max-w-md bg-slate-900 border-l border-slate-800 p-6 flex flex-col justify-between space-y-4 shadow-2xl">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                <h2 className="font-bold font-heading text-lg text-white flex items-center gap-2">
-                  <ShoppingBag className="w-5 h-5 text-emerald-400" />
-                  <span>Cart ({totalItemsCount})</span>
-                </h2>
-                <button onClick={() => setIsCartOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
-              </div>
-
-              {cart.map(item => (
-                <div key={item.id} className="glass-card p-3 rounded-xl flex items-center justify-between">
-                  <div>
-                    <h4 className="font-bold text-xs text-white">{item.name}</h4>
-                    <p className="text-[11px] text-slate-400">₹{item.price} each</p>
-                  </div>
-                  <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-2 py-1 rounded-lg text-xs font-bold">
-                    <button onClick={() => updateQty(item.id, -1)}><Minus className="w-3 h-3 text-slate-400" /></button>
-                    <span className="text-white px-1">{item.qty}</span>
-                    <button onClick={() => updateQty(item.id, 1)}><Plus className="w-3 h-3 text-slate-400" /></button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {cart.length > 0 && (
-              <div className="space-y-3 pt-4 border-t border-slate-800">
-                <div className="flex justify-between font-bold text-sm text-white">
-                  <span>Grand Total</span>
-                  <span className="text-emerald-400">₹{cartTotal + 15}</span>
-                </div>
-                <button 
-                  onClick={() => setIsCheckoutOpen(true)}
-                  className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-bold py-3 rounded-xl text-sm"
-                >
-                  Pay via {currentCheckoutShop.name}'s UPI &rarr;
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* DYNAMIC CHECKOUT MODAL */}
-      {isCheckoutOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className="w-full max-w-lg glass-panel border border-slate-800 p-6 rounded-3xl space-y-5 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div>
-                <h3 className="font-extrabold font-heading text-lg text-white">Select Payment Mode for {currentCheckoutShop.name}</h3>
-                <p className="text-xs text-slate-400">Shop UPI VPA: <span className="text-emerald-400 font-mono">{currentCheckoutShop.upiId}</span></p>
-              </div>
-              <button onClick={() => setIsCheckoutOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <button 
-                onClick={() => setSelectedPaymentMethod('Online UPI')}
-                className={`p-3.5 rounded-2xl border text-left space-y-1 transition ${
-                  selectedPaymentMethod === 'Online UPI' 
-                    ? 'bg-blue-600/20 border-blue-500 text-white shadow-lg shadow-blue-500/20' 
-                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs">Online UPI (Server Verified)</span>
-                  <Smartphone className="w-4 h-4 text-emerald-400" />
-                </div>
-                <p className="text-[10px] text-slate-400">GPay / PhonePe / Paytm direct UPI settlement</p>
-              </button>
-
-              <button 
-                onClick={() => setSelectedPaymentMethod('Cash on Handover')}
-                className={`p-3.5 rounded-2xl border text-left space-y-1 transition ${
-                  selectedPaymentMethod === 'Cash on Handover' 
-                    ? 'bg-emerald-600/20 border-emerald-500 text-white shadow-lg shadow-emerald-500/20' 
-                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs">Cash on Handover</span>
-                  <DollarSign className="w-4 h-4 text-emerald-400" />
-                </div>
-                <p className="text-[10px] text-slate-400">Pay cash at counter when collecting food</p>
-              </button>
-            </div>
-
-            {selectedPaymentMethod === 'Online UPI' ? (
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-center space-y-3">
-                <span className="text-xs font-semibold text-slate-300">Scan Shop's Uploaded UPI QR Code</span>
-                <div className="w-44 h-44 bg-white p-2.5 rounded-xl mx-auto flex items-center justify-center shadow-lg border-2 border-blue-600/20">
-                  <img 
-                    src={currentCheckoutShop.qrImageUrl} 
-                    alt="Shop Payment QR" 
-                    className="w-full h-full object-contain"
-                  />
-                </div>
-                <p className="text-[11px] text-slate-400">Server verified transaction confirmation</p>
-              </div>
-            ) : (
-              <div className="bg-slate-900 border border-yellow-500/30 p-4 rounded-2xl text-center space-y-2 text-yellow-300">
-                <AlertCircle className="w-6 h-6 mx-auto text-yellow-400" />
-                <h4 className="font-bold text-xs">Cash on Handover Selected</h4>
-                <p className="text-[11px] text-slate-400">
-                  Your order payment status will show <span className="text-red-400 font-bold">UNPAID</span> until you pay ₹{cartTotal + 15} cash to the shopkeeper at the counter.
-                </p>
-              </div>
-            )}
-
-            <button 
-              onClick={handlePlaceOrder}
-              className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-extrabold py-3.5 rounded-2xl text-sm shadow-xl shadow-blue-700/30"
-            >
-              Confirm Order & Pay ₹{cartTotal + 15} &rarr;
-            </button>
           </div>
         </div>
       )}

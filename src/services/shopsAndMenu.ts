@@ -27,6 +27,24 @@ export interface FoodItem {
   isAvailable: boolean;
   availableFrom?: string; // e.g. "08:00"
   availableUntil?: string; // e.g. "11:00"
+  isSpecial?: boolean; // Today's Special flag
+}
+
+export const CATEGORY_DEFAULT_IMAGES: Record<string, string> = {
+  'South Indian': 'https://images.unsplash.com/photo-1668236543090-82eba5ee5976?w=500&auto=format&fit=crop&q=80',
+  'Fast Food': 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=80',
+  'Beverages': 'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=500&auto=format&fit=crop&q=80',
+  'Main Course': 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=500&auto=format&fit=crop&q=80',
+  'Snacks': 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=500&auto=format&fit=crop&q=80',
+  'Desserts': 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=500&auto=format&fit=crop&q=80',
+  'Breakfast': 'https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?w=500&auto=format&fit=crop&q=80'
+};
+
+export function getCategoryDefaultImage(category: string, customImage?: string): string {
+  if (customImage && customImage.trim().length > 10) {
+    return customImage.trim();
+  }
+  return CATEGORY_DEFAULT_IMAGES[category] || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=80';
 }
 
 export const INITIAL_SHOPS: ShopAccount[] = [
@@ -79,7 +97,8 @@ export const INITIAL_MENU: FoodItem[] = [
     description: 'Golden crispy crepe cooked in pure desi ghee served with 3 coconut chutneys and sambar.',
     isAvailable: true,
     availableFrom: '07:30',
-    availableUntil: '22:00'
+    availableUntil: '22:00',
+    isSpecial: true
   },
   {
     id: 'm2',
@@ -95,7 +114,8 @@ export const INITIAL_MENU: FoodItem[] = [
     description: 'Juicy spiced cottage cheese patty topped with melted cheddar, fresh lettuce & house burger sauce.',
     isAvailable: true,
     availableFrom: '11:00',
-    availableUntil: '21:30'
+    availableUntil: '21:30',
+    isSpecial: true
   },
   {
     id: 'm3',
@@ -163,8 +183,8 @@ export const INITIAL_MENU: FoodItem[] = [
   }
 ];
 
-const STORAGE_SHOPS_KEY = 'hunger_shops_data_v3';
-const STORAGE_MENU_KEY = 'hunger_menu_data_v3';
+const STORAGE_SHOPS_KEY = 'hunger_shops_data_v4';
+const STORAGE_MENU_KEY = 'hunger_menu_data_v4';
 
 export function loadShops(): ShopAccount[] {
   try {
@@ -227,7 +247,6 @@ export async function fetchShopsFromSupabase(): Promise<ShopAccount[]> {
 }
 
 export async function addOrUpdateShopAccount(shop: ShopAccount): Promise<ShopAccount[]> {
-  // 1. Local & Event sync
   const currentShops = loadShops();
   const existingIndex = currentShops.findIndex(s => s.id === shop.id);
   
@@ -240,7 +259,6 @@ export async function addOrUpdateShopAccount(shop: ShopAccount): Promise<ShopAcc
 
   saveShops(updated);
 
-  // 2. Persistent Supabase Cloud DB Insert / Upsert
   try {
     const { error } = await supabase.from('shops').upsert([shop], { onConflict: 'id' });
     if (error) console.warn('[Supabase Insert Shop Error]:', error);
@@ -252,7 +270,6 @@ export async function addOrUpdateShopAccount(shop: ShopAccount): Promise<ShopAcc
 }
 
 export async function deleteShopAccount(shopId: string): Promise<{ shops: ShopAccount[]; menuItems: FoodItem[] }> {
-  // 1. Local & Event sync
   const currentShops = loadShops();
   const updatedShops = currentShops.filter(s => s.id !== shopId);
   saveShops(updatedShops);
@@ -261,7 +278,6 @@ export async function deleteShopAccount(shopId: string): Promise<{ shops: ShopAc
   const updatedMenu = currentMenu.filter(m => m.shopId !== shopId);
   saveMenuItems(updatedMenu);
 
-  // 2. Persistent Supabase Cloud DB Delete
   try {
     await supabase.from('shops').delete().eq('id', shopId);
     await supabase.from('food_items').delete().eq('shopId', shopId);
@@ -289,7 +305,6 @@ export async function fetchMenuItemsFromSupabase(): Promise<FoodItem[]> {
 }
 
 export async function addOrUpdateFoodItem(item: FoodItem): Promise<FoodItem[]> {
-  // 1. Local & Event sync
   const currentMenu = loadMenuItems();
   const existingIndex = currentMenu.findIndex(m => m.id === item.id);
 
@@ -302,7 +317,6 @@ export async function addOrUpdateFoodItem(item: FoodItem): Promise<FoodItem[]> {
 
   saveMenuItems(updated);
 
-  // 2. Persistent Supabase Cloud DB Insert / Upsert
   try {
     const { error } = await supabase.from('food_items').upsert([item], { onConflict: 'id' });
     if (error) console.warn('[Supabase Insert Item Error]:', error);
@@ -314,12 +328,10 @@ export async function addOrUpdateFoodItem(item: FoodItem): Promise<FoodItem[]> {
 }
 
 export async function deleteFoodItemById(itemId: string): Promise<FoodItem[]> {
-  // 1. Local & Event sync
   const currentMenu = loadMenuItems();
   const updated = currentMenu.filter(m => m.id !== itemId);
   saveMenuItems(updated);
 
-  // 2. Persistent Supabase Cloud DB Delete
   try {
     await supabase.from('food_items').delete().eq('id', itemId);
   } catch (err) {
@@ -327,4 +339,14 @@ export async function deleteFoodItemById(itemId: string): Promise<FoodItem[]> {
   }
 
   return updated;
+}
+
+/** Toggle Today's Special flag */
+export async function toggleSpecialStatus(itemId: string): Promise<FoodItem[]> {
+  const currentMenu = loadMenuItems();
+  const target = currentMenu.find(m => m.id === itemId);
+  if (!target) return currentMenu;
+
+  const updatedItem = { ...target, isSpecial: !target.isSpecial };
+  return addOrUpdateFoodItem(updatedItem);
 }
