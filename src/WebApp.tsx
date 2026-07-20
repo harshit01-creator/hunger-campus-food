@@ -53,6 +53,7 @@ interface Order {
   paidAt?: string;
   status: OrderStatus;
   createdAt: string;
+  createdAtTimestamp: number;
   estimatedMinutes: number;
   qrToken: string;
   handedOverAt?: string;
@@ -114,9 +115,15 @@ export default function WebApp() {
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
 
-  // 8-Second Cancellation Confirmation Window State
-  const [cancelCountdown, setCancelCountdown] = useState<number | null>(null);
-  const cancelTimerRef = useRef<any>(null);
+  // 8-Second Cancellation Window Live Ticker State
+  const [currentTime, setCurrentTime] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Discount Offer Manager Modal State
   const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
@@ -279,9 +286,6 @@ export default function WebApp() {
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach(track => track.stop());
       }
-      if (cancelTimerRef.current) {
-        clearInterval(cancelTimerRef.current);
-      }
     };
   }, []);
 
@@ -364,8 +368,6 @@ export default function WebApp() {
 
   const handleLogout = () => {
     stopCameraScanner();
-    if (cancelTimerRef.current) clearInterval(cancelTimerRef.current);
-    setCancelCountdown(null);
     setCurrentUser(null);
     setActiveTab('home');
   };
@@ -388,6 +390,7 @@ export default function WebApp() {
 
     const orderId = apiRes.orderId;
     const uniqueQrToken = apiRes.qrToken;
+    const createdAtTimestamp = apiRes.createdAt || Date.now();
 
     const newOrder: Order = {
       id: orderId,
@@ -403,6 +406,7 @@ export default function WebApp() {
       paidAt: apiRes.paymentStatus === 'Paid' ? new Date().toLocaleTimeString() : undefined,
       status: 'Pending',
       createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      createdAtTimestamp,
       estimatedMinutes: 12,
       qrToken: uniqueQrToken,
       payeeUpiId: targetShop.upiId,
@@ -423,46 +427,30 @@ export default function WebApp() {
     });
   };
 
-  // ISSUE 2 FIX: ORDER CANCELLATION WITH AN 8-SECOND CONFIRMATION WINDOW
-  const startCancelWindow = (orderIdToCancel: string) => {
+  // ORDER CANCELLATION (STRICT 8-SECOND WINDOW VALIDATION)
+  const handleCustomerCancelOrder = async (orderIdToCancel: string) => {
     if (!currentOrder || currentOrder.id !== orderIdToCancel) return;
+
+    const elapsedMs = Date.now() - currentOrder.createdAtTimestamp;
+    if (elapsedMs > 8000) {
+      alert(`⚠️ Cancellation window expired: 8-second cancellation period has passed.`);
+      return;
+    }
+
     if (currentOrder.status !== 'Pending') {
       alert(`⚠️ Cannot cancel order #${orderIdToCancel}: The shopkeeper has already accepted your order!`);
       return;
     }
 
-    if (cancelTimerRef.current) clearInterval(cancelTimerRef.current);
-    setCancelCountdown(8);
-
-    cancelTimerRef.current = setInterval(() => {
-      setCancelCountdown(prev => {
-        if (prev === null || prev <= 1) {
-          clearInterval(cancelTimerRef.current);
-          cancelTimerRef.current = null;
-          return null; // 8s window expired -> dismiss cancel prompt, order remains active untouched!
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  const confirmCancelOrder = async (orderIdToCancel: string) => {
-    if (cancelTimerRef.current) {
-      clearInterval(cancelTimerRef.current);
-      cancelTimerRef.current = null;
-    }
-    setCancelCountdown(null);
-
-    // Re-verify current order status server-side at confirmation time
-    const apiRes = await cancelOrderApi(orderIdToCancel, 'customer', 'Customer confirmed cancellation within 8s window');
+    const apiRes = await cancelOrderApi(orderIdToCancel, 'customer', 'Customer cancelled within 8s window');
     if (apiRes.success) {
       const updated: Order = {
-        ...currentOrder!,
+        ...currentOrder,
         status: 'Cancelled',
-        paymentStatus: apiRes.refundStatus || currentOrder!.paymentStatus,
+        paymentStatus: apiRes.refundStatus || currentOrder.paymentStatus,
         cancelledBy: 'customer',
         cancelledAt: new Date().toLocaleTimeString(),
-        cancellationReason: 'Customer confirmed cancellation within 8s window'
+        cancellationReason: 'Customer cancelled within 8s window'
       };
       setCurrentOrder(updated);
       setOrdersHistory(prev => prev.map(o => o.id === orderIdToCancel ? updated : o));
@@ -470,14 +458,6 @@ export default function WebApp() {
     } else {
       alert(`❌ Cancellation failed: ${apiRes.message}`);
     }
-  };
-
-  const dismissCancelWindow = () => {
-    if (cancelTimerRef.current) {
-      clearInterval(cancelTimerRef.current);
-      cancelTimerRef.current = null;
-    }
-    setCancelCountdown(null);
   };
 
   // SHOPKEEPER ACCEPT ORDER ACTION
@@ -1494,157 +1474,139 @@ export default function WebApp() {
           </div>
         )}
 
-        {/* CUSTOMER DASHBOARD: LIVE ORDER TRACKING & 8-SECOND CANCEL CONFIRMATION WINDOW */}
-        {currentUser.role === 'customer' && activeTab === 'tracking' && currentOrder && (
-          <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
-            <div className={`p-6 rounded-3xl border text-center space-y-3 relative overflow-hidden ${
-              theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
-            }`}>
-              
-              <div className="flex items-center justify-center gap-2 flex-wrap">
-                <span className={`inline-flex items-center gap-1.5 border px-3 py-1 rounded-full text-xs font-bold ${
-                  currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' :
-                  currentOrder.paymentStatus === 'Refund Pending' ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' :
-                  currentOrder.paymentStatus === 'Pending' ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-500' :
-                  'bg-red-500/10 border-red-500/30 text-red-500'
-                }`}>
-                  {currentOrder.paymentStatus === 'Paid' ? '✅ Paid' :
-                   currentOrder.paymentStatus === 'Refund Pending' ? '🔄 Refund Pending' :
-                   currentOrder.paymentStatus === 'Pending' ? '⏳ Payment Pending' :
-                   '❌ Unpaid (Cash on Handover)'}
-                </span>
+        {/* CUSTOMER DASHBOARD: LIVE ORDER TRACKING & AUTOMATIC 8-SECOND CANCEL BUTTON DISAPPEARANCE */}
+        {currentUser.role === 'customer' && activeTab === 'tracking' && currentOrder && (() => {
+          const elapsedSec = Math.floor((currentTime - currentOrder.createdAtTimestamp) / 1000);
+          const remainingSec = Math.max(0, 8 - elapsedSec);
+          const isCancelVisible = remainingSec > 0 && currentOrder.status === 'Pending';
 
-                {currentOrder.transactionId && (
-                  <span className={`border font-mono text-[10px] px-2.5 py-1 rounded-full ${
-                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-300 text-slate-700'
+          return (
+            <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
+              <div className={`p-6 rounded-3xl border text-center space-y-3 relative overflow-hidden ${
+                theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+              }`}>
+                
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  <span className={`inline-flex items-center gap-1.5 border px-3 py-1 rounded-full text-xs font-bold ${
+                    currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' :
+                    currentOrder.paymentStatus === 'Refund Pending' ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' :
+                    currentOrder.paymentStatus === 'Pending' ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-500' :
+                    'bg-red-500/10 border-red-500/30 text-red-500'
                   }`}>
-                    Ref: {currentOrder.transactionId}
+                    {currentOrder.paymentStatus === 'Paid' ? '✅ Paid' :
+                     currentOrder.paymentStatus === 'Refund Pending' ? '🔄 Refund Pending' :
+                     currentOrder.paymentStatus === 'Pending' ? '⏳ Payment Pending' :
+                     '❌ Unpaid (Cash on Handover)'}
                   </span>
-                )}
-              </div>
 
-              <h2 className="text-3xl font-extrabold font-heading">
-                {currentOrder.status === 'Completed' ? '✅ Food Handed Over!' : 
-                 currentOrder.status === 'Cancelled' ? '❌ Order Cancelled' :
-                 currentOrder.status === 'Pending' ? '⏳ Awaiting Shopkeeper Acceptance...' :
-                 currentOrder.status === 'Ready for Pickup' ? '🔔 Your order is ready for pickup!' :
-                 currentOrder.status}
-              </h2>
-              
-              <p className="text-xs text-slate-400">
-                {currentOrder.status === 'Pending' 
-                  ? 'Your order is pending acceptance. You can cancel now if needed.' 
-                  : currentOrder.status === 'Ready for Pickup'
-                  ? 'Please show your QR code to the shopkeeper at the counter to collect your food.'
-                  : currentOrder.status === 'Cancelled'
-                  ? `Cancelled by ${currentOrder.cancelledBy || 'user'} at ${currentOrder.cancelledAt || ''}`
-                  : 'Kitchen is preparing your meal.'}
-              </p>
-
-              {/* ISSUE 2 FIX: 8-SECOND CONFIRMATION WINDOW UI */}
-              {currentOrder.status === 'Pending' && (
-                <div className="pt-2 space-y-2">
-                  {cancelCountdown !== null ? (
-                    <div className="bg-red-950/90 border border-red-500 p-4 rounded-2xl space-y-3 text-center">
-                      <div className="flex items-center justify-center gap-2 text-red-300 font-extrabold text-xs">
-                        <Clock className="w-4 h-4 text-red-400 animate-spin-slow" />
-                        <span>Cancelling in {cancelCountdown}s — Tap to Confirm Cancellation!</span>
-                      </div>
-                      <div className="flex items-center justify-center gap-3">
-                        <button 
-                          onClick={() => confirmCancelOrder(currentOrder.id)}
-                          className="bg-red-600 hover:bg-red-500 text-white font-extrabold px-5 py-2.5 rounded-xl text-xs shadow-lg flex items-center gap-1.5 active:scale-95"
-                        >
-                          <Ban className="w-4 h-4" />
-                          <span>Confirm Cancel Now ({cancelCountdown}s) 🚫</span>
-                        </button>
-                        <button 
-                          onClick={dismissCancelWindow}
-                          className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-4 py-2.5 rounded-xl text-xs"
-                        >
-                          Keep Order Active
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button 
-                      onClick={() => startCancelWindow(currentOrder.id)}
-                      className="bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold px-5 py-2.5 rounded-2xl text-xs transition shadow-lg flex items-center gap-2 mx-auto active:scale-95"
-                    >
-                      <Ban className="w-4 h-4 text-red-400" />
-                      <span>Cancel Order #{currentOrder.id} (8s Confirmation Window) 🚫</span>
-                    </button>
+                  {currentOrder.transactionId && (
+                    <span className={`border font-mono text-[10px] px-2.5 py-1 rounded-full ${
+                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-300 text-slate-700'
+                    }`}>
+                      Ref: {currentOrder.transactionId}
+                    </span>
                   )}
                 </div>
-              )}
 
-              <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden p-0.5 border border-slate-800">
-                <div 
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    currentOrder.status === 'Cancelled' ? 'bg-red-500' : 'bg-gradient-to-r from-blue-600 to-emerald-400'
-                  }`} 
-                  style={{ width: `${currentOrder.status === 'Pending' ? 15 : currentOrder.status === 'Accepted' ? 50 : currentOrder.status === 'Ready for Pickup' ? 90 : currentOrder.status === 'Cancelled' ? 100 : 100}%` }}
-                />
-              </div>
-            </div>
+                <h2 className="text-3xl font-extrabold font-heading">
+                  {currentOrder.status === 'Completed' ? '✅ Food Handed Over!' : 
+                   currentOrder.status === 'Cancelled' ? '❌ Order Cancelled' :
+                   currentOrder.status === 'Ready for Pickup' ? '🍽️ Food is Ready — Please collect your order' :
+                   currentOrder.status === 'Accepted' ? '🍳 Kitchen is Preparing Your Meal...' :
+                   '⏳ Order Placed — Waiting for Canteen Acceptance'}
+                </h2>
+                
+                <p className="text-xs text-slate-400">
+                  {currentOrder.status === 'Ready for Pickup'
+                    ? 'Show your QR code to the shopkeeper at the counter to collect your food.'
+                    : currentOrder.status === 'Cancelled'
+                    ? `Cancelled by ${currentOrder.cancelledBy || 'user'} at ${currentOrder.cancelledAt || ''}`
+                    : currentOrder.status === 'Accepted'
+                    ? 'Your order is locked and being prepared by the canteen chef.'
+                    : 'Order placed. Cancellation window closes after 8 seconds.'}
+                </p>
 
-            <div className={`p-6 rounded-3xl border space-y-6 ${
-              theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
-            }`}>
-              <h3 className="font-bold text-sm border-b border-slate-800 pb-3">Real-time Order Status Flow</h3>
-
-              <div className="space-y-6 relative before:absolute before:left-4 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-800">
-                <div className="flex items-start gap-4 relative z-10">
-                  <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold">1</div>
-                  <div>
-                    <h4 className="font-bold text-sm">Order Placed (Pending Acceptance)</h4>
-                    <p className="text-xs text-slate-400">Status: <span className="text-yellow-500 font-bold">Pending</span> • Payment: <span className="text-emerald-500 font-bold">{currentOrder.paymentStatus}</span></p>
+                {/* AUTOMATIC 8-SECOND CANCEL BUTTON (DISAPPEARS LIVE AT 0s) */}
+                {isCancelVisible && (
+                  <div className="pt-2">
+                    <button 
+                      onClick={() => handleCustomerCancelOrder(currentOrder.id)}
+                      className="bg-red-950/90 hover:bg-red-900 border border-red-500/60 text-red-300 font-extrabold px-5 py-2.5 rounded-2xl text-xs transition shadow-lg flex items-center gap-2 mx-auto active:scale-95 animate-pulse"
+                    >
+                      <Ban className="w-4 h-4 text-red-400" />
+                      <span>Cancel Order ({remainingSec}s) 🚫</span>
+                    </button>
                   </div>
-                </div>
+                )}
 
-                <div className="flex items-start gap-4 relative z-10">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Accepted', 'Ready for Pickup', 'Completed'].includes(currentOrder.status) ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>2</div>
-                  <div>
-                    <h4 className="font-bold text-sm">Order Accepted & Preparing</h4>
-                    <p className="text-xs text-slate-400">Accepted by canteen • Cancellation locked</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-4 relative z-10">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Ready for Pickup', 'Completed'].includes(currentOrder.status) ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-400'}`}>3</div>
-                  <div>
-                    <h4 className="font-bold text-sm">Ready for Pickup 🔔</h4>
-                    <p className="text-xs text-slate-400">Show QR code below to shopkeeper</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* UNIQUE SINGLE-USE QR CODE */}
-            {currentOrder.status !== 'Cancelled' && (
-              <div className={`p-6 rounded-3xl border text-center space-y-4 ${
-                theme === 'dark' ? 'glass-card border-slate-800' : 'bg-white border-slate-200 shadow-xl'
-              }`}>
-                <div className="inline-flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs text-slate-300">
-                  <QrCode className="w-4 h-4 text-emerald-400" />
-                  <span className="font-semibold">Single-Use Order Collection QR Code</span>
-                </div>
-
-                <div className="w-52 h-52 bg-white p-3 rounded-2xl mx-auto flex items-center justify-center shadow-xl border-4 border-blue-600/20">
-                  <img 
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(currentOrder.qrToken)}`} 
-                    alt="Order QR Code"
-                    className="w-full h-full object-contain" 
+                <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden p-0.5 border border-slate-800">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      currentOrder.status === 'Cancelled' ? 'bg-red-500' : 'bg-gradient-to-r from-blue-600 to-emerald-400'
+                    }`} 
+                    style={{ width: `${currentOrder.status === 'Pending' ? 15 : currentOrder.status === 'Accepted' ? 50 : currentOrder.status === 'Ready for Pickup' ? 90 : currentOrder.status === 'Cancelled' ? 100 : 100}%` }}
                   />
                 </div>
-
-                <p className="text-xs text-slate-400 font-mono">
-                  Order ID: <span className="font-bold">{currentOrder.id}</span>
-                </p>
               </div>
-            )}
-          </div>
-        )}
+
+              <div className={`p-6 rounded-3xl border space-y-6 ${
+                theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+              }`}>
+                <h3 className="font-bold text-sm border-b border-slate-800 pb-3">Real-time Order Status Flow</h3>
+
+                <div className="space-y-6 relative before:absolute before:left-4 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-800">
+                  <div className="flex items-start gap-4 relative z-10">
+                    <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold">1</div>
+                    <div>
+                      <h4 className="font-bold text-sm">Order Placed</h4>
+                      <p className="text-xs text-slate-400">Status: <span className="text-yellow-500 font-bold">{currentOrder.status}</span> • Payment: <span className="text-emerald-500 font-bold">{currentOrder.paymentStatus}</span></p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-4 relative z-10">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Accepted', 'Ready for Pickup', 'Completed'].includes(currentOrder.status) ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>2</div>
+                    <div>
+                      <h4 className="font-bold text-sm">Accepted & Preparing</h4>
+                      <p className="text-xs text-slate-400">Accepted by canteen • Cancellation locked</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-4 relative z-10">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Ready for Pickup', 'Completed'].includes(currentOrder.status) ? 'bg-emerald-500 text-white animate-bounce' : 'bg-slate-800 text-slate-400'}`}>3</div>
+                    <div>
+                      <h4 className="font-bold text-sm">🍽️ Food is Ready — Please collect your order</h4>
+                      <p className="text-xs text-slate-400">Show QR code below to shopkeeper</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* UNIQUE SINGLE-USE QR CODE */}
+              {currentOrder.status !== 'Cancelled' && (
+                <div className={`p-6 rounded-3xl border text-center space-y-4 ${
+                  theme === 'dark' ? 'glass-card border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+                }`}>
+                  <div className="inline-flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs text-slate-300">
+                    <QrCode className="w-4 h-4 text-emerald-400" />
+                    <span className="font-semibold">Single-Use Order Collection QR Code</span>
+                  </div>
+
+                  <div className="w-52 h-52 bg-white p-3 rounded-2xl mx-auto flex items-center justify-center shadow-xl border-4 border-blue-600/20">
+                    <img 
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(currentOrder.qrToken)}`} 
+                      alt="Order QR Code"
+                      className="w-full h-full object-contain" 
+                    />
+                  </div>
+
+                  <p className="text-xs text-slate-400 font-mono">
+                    Order ID: <span className="font-bold">{currentOrder.id}</span>
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* SHOPKEEPER DASHBOARD */}
         {currentUser.role === 'shopkeeper' && (
@@ -1724,7 +1686,7 @@ export default function WebApp() {
                     {currentOrder.status === 'Accepted' && (
                       <button 
                         onClick={() => handleShopkeeperFoodReady(currentOrder.id)}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/20"
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/20 animate-pulse"
                       >
                         <Bell className="w-4 h-4" />
                         <span>Food is Ready 🔔 (Mark Ready for Pickup)</span>

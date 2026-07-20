@@ -88,14 +88,15 @@ interface CreateOrderInput {
   appliedDiscount?: any;
 }
 
-export async function createOrder(input: CreateOrderInput): Promise<{orderId: string; qrToken: string; paymentStatus: PaymentStatus; transactionId?: string}> {
+export async function createOrder(input: CreateOrderInput): Promise<{orderId: string; qrToken: string; paymentStatus: PaymentStatus; transactionId?: string; createdAt: number}> {
   const orderId = `HUNGER-${Math.floor(1000 + Math.random() * 9000)}`;
   const qrToken = `HUNGER-QR-${orderId}-${Date.now()}`;
+  const now = Date.now();
   
   const isOnline = input.paymentMethod === 'Online UPI';
   const paymentStatus: PaymentStatus = isOnline ? (input.isOnlineVerified ? 'Paid' : 'Pending') : 'Unpaid';
   const transactionId = isOnline ? (input.transactionId || `UPI-TXN-${Math.floor(1000000000 + Math.random() * 9000000000)}`) : undefined;
-  const paidAt = paymentStatus === 'Paid' ? Date.now() : undefined;
+  const paidAt = paymentStatus === 'Paid' ? now : undefined;
 
   await supabase.from(ORDERS).insert([{
     orderId,
@@ -110,11 +111,11 @@ export async function createOrder(input: CreateOrderInput): Promise<{orderId: st
     foodCollected: false,
     qrToken,
     appliedDiscount: input.appliedDiscount || null,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    createdAt: now,
+    updatedAt: now,
   }]);
 
-  return { orderId, qrToken, paymentStatus, transactionId };
+  return { orderId, qrToken, paymentStatus, transactionId, createdAt: now };
 }
 
 /** Shopkeeper action: Accept Order (Locks order, moves status from Pending -> Accepted) */
@@ -128,7 +129,7 @@ export async function acceptOrder(orderId: string) {
     .eq('orderId', orderId);
 }
 
-/** Customer / Shopkeeper action: Cancel Order (Only valid while status === 'Pending') */
+/** Customer / Shopkeeper action: Cancel Order (Validated server-side within 8-second window & status === 'Pending') */
 export async function cancelOrder(
   orderId: string, 
   cancelledBy: 'customer' | 'shopkeeper', 
@@ -138,6 +139,14 @@ export async function cancelOrder(
     const { data: existing } = await supabase.from(ORDERS).select('*').eq('orderId', orderId).single();
     if (!existing) {
       return { success: false, message: 'Order not found.' };
+    }
+
+    // Server-side check for Customer cancellation: Must be within 8 seconds of creation & status === 'Pending'
+    if (cancelledBy === 'customer') {
+      const elapsedSeconds = (Date.now() - (existing.createdAt || Date.now())) / 1000;
+      if (elapsedSeconds > 8.5) {
+        return { success: false, message: `Cancellation period expired: 8-second window has passed (${Math.round(elapsedSeconds)}s elapsed).` };
+      }
     }
 
     if (existing.status !== 'Pending') {
