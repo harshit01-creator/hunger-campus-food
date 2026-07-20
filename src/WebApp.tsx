@@ -4,7 +4,7 @@ import {
   Sparkles, QrCode, ArrowLeft, Plus, Minus, CreditCard, Smartphone,
   Utensils, Store, User, Bell, Flame, Filter, RefreshCw, X, ShieldCheck,
   Camera, Lock, Edit3, Trash2, Calendar, AlertCircle, LogOut, Check, Upload,
-  Users, Shield, BarChart3, AlertTriangle, Key, Mail, Eye, EyeOff, LogIn
+  Users, Shield, BarChart3, AlertTriangle, Key, Mail, Eye, EyeOff, LogIn, DollarSign
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import kprLogo from './assets/logo.png';
@@ -15,8 +15,9 @@ import {
 import {
   createOrder as createOrderApi,
   markFoodReady as markFoodReadyApi,
+  markAsPaidByShopkeeper as markAsPaidByShopkeeperApi,
   verifyAndProcessQrHandover as verifyAndProcessQrHandoverApi,
-  OrderDoc
+  OrderDoc, PaymentStatus, PaymentMethod, QrHandoverResult
 } from './services/orders';
 import {
   ShopAccount, FoodItem, loadShops, saveShops, loadMenuItems, saveMenuItems
@@ -34,7 +35,10 @@ interface Order {
   customerName: string;
   items: CartItem[];
   grandTotal: number;
-  paymentMethod: 'upi_gpay' | 'upi_phonepe' | 'upi_paytm' | 'upi_qr';
+  paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
+  transactionId?: string;
+  paidAt?: string;
   status: 'Order Confirmed' | 'Being Prepared' | 'Food Ready' | 'Completed';
   createdAt: string;
   estimatedMinutes: number;
@@ -45,7 +49,7 @@ interface Order {
 }
 
 export default function WebApp() {
-  // Navigation & User Session State
+  // Navigation & Session State
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'menu' | 'tracking' | 'owner' | 'admin'>('home');
   const [searchQuery, setSearchQuery] = useState('');
@@ -53,18 +57,18 @@ export default function WebApp() {
   const [selectedShopId, setSelectedShopId] = useState<string>('all');
   const [location, setLocation] = useState('Hostel Block B — Room 204');
 
-  // Master Data State (Persisted & Synced across Customer & Shopkeeper Dashboards)
+  // Master Data State
   const [shops, setShops] = useState<ShopAccount[]>(() => loadShops());
   const [menuItems, setMenuItems] = useState<FoodItem[]>(() => loadMenuItems());
   const [cart, setCart] = useState<CartItem[]>([]);
   const [ordersHistory, setOrdersHistory] = useState<Order[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState<'upi_gpay' | 'upi_phonepe' | 'upi_paytm' | 'upi_qr'>('upi_gpay');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('Online UPI');
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
 
-  // Real-Time Listener to sync Shopkeeper updates to Customer Dashboard
+  // Real-Time Event Sync
   useEffect(() => {
     const handleSync = () => {
       setShops(loadShops());
@@ -91,7 +95,7 @@ export default function WebApp() {
   const [authPassword, setAuthPassword] = useState('password123');
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Menu Item Editor Modal
+  // Menu Editor Modal State
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<FoodItem | null>(null);
   const [itemForm, setItemForm] = useState<{
@@ -116,18 +120,18 @@ export default function WebApp() {
     availableUntil: '22:00'
   });
 
-  // Shop Owner Payment QR Editing
+  // Shop Owner Payment Settings State
   const [editingShopUpi, setEditingShopUpi] = useState('');
   const [editingShopQrUrl, setEditingShopQrUrl] = useState('');
 
-  // Super Admin Action Modals
+  // Super Admin Modal State
   const [isAddShopkeeperOpen, setIsAddShopkeeperOpen] = useState(false);
   const [newShopkeeperName, setNewShopkeeperName] = useState('');
   const [newShopkeeperEmail, setNewShopkeeperEmail] = useState('');
   const [newShopkeeperShopId, setNewShopkeeperShopId] = useState('shop-1');
 
   // Camera QR Scanner State
-  const [scanFeedback, setScanFeedback] = useState<{ success?: boolean; message: string } | null>(null);
+  const [scanResult, setScanResult] = useState<QrHandoverResult | null>(null);
   const [simulatedQrInput, setSimulatedQrInput] = useState('');
 
   // Prep progress simulation
@@ -192,7 +196,7 @@ export default function WebApp() {
 
   const currentCheckoutShop = cart.length > 0 ? shops.find(s => s.id === cart[0].shopId) || shops[0] : shops[0];
 
-  // AUTHENTICATION SUBMISSION HANDLER
+  // AUTH SUBMISSION
   const handleAuthSubmit = async (e?: React.FormEvent, directEmail?: string, directPassword?: string, directShopId?: string) => {
     if (e) e.preventDefault();
     setAuthError(null);
@@ -208,7 +212,6 @@ export default function WebApp() {
       };
       setCurrentUser(finalUser);
 
-      // REDIRECTION AFTER LOGIN TO DASHBOARD
       if (finalUser.role === 'super_admin') {
         setActiveTab('admin');
       } else if (finalUser.role === 'shopkeeper' || authTab === 'shopkeeper') {
@@ -226,24 +229,26 @@ export default function WebApp() {
     setActiveTab('home');
   };
 
+  // ORDER PLACEMENT WITH PAYMENT STATUS ENGINE
   const handlePlaceOrder = async () => {
     if (cart.length === 0) return;
     const targetShop = currentCheckoutShop;
-    
-    // Call backend API service
+    const isOnline = selectedPaymentMethod === 'Online UPI';
+
+    // Call server backend API
     const apiRes = await createOrderApi({
       shopId: targetShop.id,
       items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty })),
       grandTotal: cartTotal + 15,
-      paymentMethod: 'upi'
+      paymentMethod: selectedPaymentMethod,
+      isOnlineVerified: isOnline // Server verifies UPI gateway settlement
     });
 
     const orderId = apiRes.orderId;
     const qrTokenData = apiRes.qrToken || JSON.stringify({
       orderId,
       shopId: targetShop.id,
-      token: `TOKEN-${Date.now()}`,
-      createdAt: Date.now()
+      token: `TOKEN-${Date.now()}`
     });
 
     const newOrder: Order = {
@@ -254,7 +259,10 @@ export default function WebApp() {
       customerName: currentUser?.name || 'Student Customer',
       items: [...cart],
       grandTotal: cartTotal + 15,
-      paymentMethod: selectedPayment,
+      paymentMethod: selectedPaymentMethod,
+      paymentStatus: apiRes.paymentStatus,
+      transactionId: apiRes.transactionId,
+      paidAt: apiRes.paymentStatus === 'Paid' ? new Date().toLocaleTimeString() : undefined,
       status: 'Order Confirmed',
       createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       estimatedMinutes: 12,
@@ -281,20 +289,48 @@ export default function WebApp() {
     }, 3500);
   };
 
-  // QR AUTO HANDOVER ENGINE
+  // SHOPKEEPER MANUAL CASH PAYMENT OVERRIDE
+  const handleMarkOrderPaidCash = async (orderIdToPay: string) => {
+    const ownerName = currentUser?.name || 'Shop Owner';
+    await markAsPaidByShopkeeperApi(orderIdToPay, ownerName);
+
+    if (currentOrder && currentOrder.id === orderIdToPay) {
+      const updated = {
+        ...currentOrder,
+        paymentStatus: 'Paid' as PaymentStatus,
+        transactionId: `CASH-COLLECTED-BY-${ownerName.toUpperCase()}`,
+        paidAt: new Date().toLocaleTimeString()
+      };
+      setCurrentOrder(updated);
+      setOrdersHistory(prev => prev.map(o => o.id === orderIdToPay ? updated : o));
+    }
+
+    setScanResult({
+      success: true,
+      message: `💵 Cash payment of ₹${currentOrder?.grandTotal || 0} collected! Order #${orderIdToPay} marked as PAID.`,
+      paymentStatus: 'Paid',
+      paymentMethod: 'Cash on Handover',
+      transactionId: `CASH-COLLECTED-BY-${ownerName.toUpperCase()}`
+    });
+  };
+
+  // QR AUTO HANDOVER ENGINE WITH PAYMENT VERIFICATION & UNPAID SAFEGUARDS
   const processQrScanHandover = async (scannedRaw: string) => {
-    setScanFeedback(null);
+    setScanResult(null);
     const loggedInShopId = currentUser?.shopId || 'shop-1';
     const shopOwnerName = currentUser?.name || 'Canteen Manager';
 
-    // 1. First run server verification API
+    // 1. Run server verification API
     const apiRes = await verifyAndProcessQrHandoverApi(scannedRaw, loggedInShopId, shopOwnerName);
     
+    // Check if order is unpaid safeguard warning
+    if (apiRes.isUnpaidWarning) {
+      setScanResult(apiRes);
+      return;
+    }
+
     if (!apiRes.success && (!currentOrder || currentOrder.id !== scannedRaw.trim())) {
-      setScanFeedback({
-        success: false,
-        message: apiRes.message || `Order verification failed.`
-      });
+      setScanResult(apiRes);
       return;
     }
 
@@ -309,7 +345,7 @@ export default function WebApp() {
       const orderIdScanned = parsed.orderId || parsed.id || scannedRaw.trim();
 
       if (!currentOrder || currentOrder.id !== orderIdScanned) {
-        setScanFeedback({
+        setScanResult({
           success: false,
           message: `Order #${orderIdScanned} not found in database.`
         });
@@ -317,7 +353,7 @@ export default function WebApp() {
       }
 
       if (currentUser?.role === 'shopkeeper' && currentOrder.shopId !== loggedInShopId) {
-        setScanFeedback({
+        setScanResult({
           success: false,
           message: `Access Denied: Order #${orderIdScanned} belongs to ${currentOrder.shopName}.`
         });
@@ -325,17 +361,36 @@ export default function WebApp() {
       }
 
       if (currentOrder.status === 'Completed') {
-        setScanFeedback({
+        setScanResult({
           success: false,
-          message: `Order #${currentOrder.id} has ALREADY been marked as handed over!`
+          message: `Order #${currentOrder.id} has ALREADY been marked as handed over!`,
+          paymentStatus: currentOrder.paymentStatus,
+          paymentMethod: currentOrder.paymentMethod,
+          transactionId: currentOrder.transactionId
         });
         return;
       }
 
       if (currentOrder.status !== 'Food Ready') {
-        setScanFeedback({
+        setScanResult({
           success: false,
-          message: `Cannot Handover: Order #${currentOrder.id} is currently '${currentOrder.status}'. It must be marked 'Food Ready' first.`
+          message: `Cannot Handover: Order #${currentOrder.id} is currently '${currentOrder.status}'. It must be marked 'Food Ready' first.`,
+          paymentStatus: currentOrder.paymentStatus,
+          paymentMethod: currentOrder.paymentMethod,
+          transactionId: currentOrder.transactionId
+        });
+        return;
+      }
+
+      // Safeguard check for unpaid orders
+      if (currentOrder.paymentStatus !== 'Paid') {
+        setScanResult({
+          success: false,
+          isUnpaidWarning: true,
+          message: `⚠️ UNPAID ORDER SAFEGUARD: Order #${currentOrder.id} is NOT PAID (${currentOrder.paymentMethod}). Please collect cash before handing over food!`,
+          paymentStatus: currentOrder.paymentStatus,
+          paymentMethod: currentOrder.paymentMethod,
+          transactionId: currentOrder.transactionId
         });
         return;
       }
@@ -350,9 +405,12 @@ export default function WebApp() {
       setCurrentOrder(updatedOrder);
       setOrdersHistory(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
 
-      setScanFeedback({
+      setScanResult({
         success: true,
-        message: `🎉 Order #${currentOrder.id} verified & marked as Handed Over at ${timeHanded}!`
+        message: `🎉 Order #${currentOrder.id} verified & marked as Handed Over at ${timeHanded}!`,
+        paymentStatus: 'Paid',
+        paymentMethod: currentOrder.paymentMethod,
+        transactionId: currentOrder.transactionId
       });
 
       confetti({
@@ -362,14 +420,14 @@ export default function WebApp() {
       });
 
     } catch (err: any) {
-      setScanFeedback({
+      setScanResult({
         success: false,
         message: `Scan Verification Failed: ${err.message || 'Invalid format'}`
       });
     }
   };
 
-  // FOOD MENU CRUD WITH REAL-TIME CUSTOMER DASHBOARD PERSISTENCE
+  // FOOD MENU CRUD
   const handleSaveFoodItem = (e: React.FormEvent) => {
     e.preventDefault();
     const activeShopId = currentUser?.shopId || 'shop-1';
@@ -468,29 +526,28 @@ export default function WebApp() {
 
   const activeShopForOwner = shops.find(s => s.id === (currentUser?.shopId || 'shop-1')) || shops[0];
 
-  // Manual Refresh Handler for Customer Dashboard
   const triggerManualSync = () => {
     setShops(loadShops());
     setMenuItems(loadMenuItems());
     setLastSyncTime(new Date().toLocaleTimeString());
   };
 
-  // IF USER IS NOT LOGGED IN -> RENDER HUNGER LOGIN SCREEN FIRST!
+  // UNAUTHENTICATED -> RENDER LOGIN SCREEN
   if (!currentUser) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 text-slate-100 selection:bg-blue-600">
         <div className="w-full max-w-lg glass-panel border border-slate-800 p-6 sm:p-8 rounded-3xl space-y-6 shadow-2xl relative animate-fadeIn">
           
-          {/* Header Branding with Custom Emblem Logo */}
+          {/* Header Branding */}
           <div className="text-center space-y-2">
             <div className="w-16 h-16 logo-badge mx-auto mb-2">
               <img src={kprLogo} alt="Hunger Logo" className="w-full h-full object-contain" />
             </div>
             <h1 className="font-heading font-extrabold text-3xl sm:text-4xl gradient-text">Hunger</h1>
-            <p className="text-xs text-slate-400">Campus Food Ordering & QR Auto Handover Platform</p>
+            <p className="text-xs text-slate-400">Campus Food Ordering & Verified Payment QR Auto Handover</p>
           </div>
 
-          {/* DUAL LOGIN TABS (CUSTOMER vs SHOPKEEPER) */}
+          {/* DUAL LOGIN TABS */}
           <div className="flex bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800">
             <button 
               onClick={() => {
@@ -512,7 +569,6 @@ export default function WebApp() {
             </button>
           </div>
 
-          {/* Error Banner */}
           {authError && (
             <div className="bg-red-950/80 border border-red-500/40 text-red-300 p-3 rounded-xl text-xs font-bold flex items-center gap-2">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -520,7 +576,6 @@ export default function WebApp() {
             </div>
           )}
 
-          {/* LOGIN FORM */}
           <form onSubmit={handleAuthSubmit} className="space-y-4">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-slate-300">Email Address</label>
@@ -611,15 +666,14 @@ export default function WebApp() {
     );
   }
 
-  // AFTER LOGIN -> HUNGER DASHBOARD APPEARS!
+  // LOGGED IN DASHBOARDS
   return (
     <div className="min-h-screen flex flex-col text-slate-100 selection:bg-blue-600 selection:text-white">
       
-      {/* Dashboard Top Header */}
+      {/* Top Header */}
       <header className="sticky top-0 z-40 glass-panel border-b border-slate-800/80 px-4 lg:px-8 py-3 transition-all">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
           
-          {/* Custom Emblem Logo */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('home')}>
             <div className="w-10 h-10 logo-badge">
               <img src={kprLogo} alt="Hunger Logo" className="w-full h-full object-contain" />
@@ -631,11 +685,10 @@ export default function WebApp() {
                   Active Session
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 hidden sm:block">Campus Food Ordering & QR Auto Handover</p>
+              <p className="text-[11px] text-slate-400 hidden sm:block">Verified Payment QR Auto Handover</p>
             </div>
           </div>
 
-          {/* Search Bar */}
           <div className="flex-1 max-w-xs relative hidden sm:block">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input 
@@ -647,10 +700,7 @@ export default function WebApp() {
             />
           </div>
 
-          {/* Logged In User Profile Banner, Manual Refresh & Log Out */}
           <div className="flex items-center gap-3">
-            
-            {/* Sync Refresh Button */}
             <button 
               onClick={triggerManualSync}
               className="bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 p-2 rounded-xl text-xs transition flex items-center gap-1"
@@ -703,7 +753,6 @@ export default function WebApp() {
       <div className="bg-slate-950/80 border-b border-slate-800/60 px-4 py-2 sticky top-[61px] z-30 backdrop-blur-md">
         <div className="max-w-7xl mx-auto flex items-center justify-between text-xs font-medium">
           
-          {/* Customer Navigation */}
           {currentUser.role === 'customer' && (
             <div className="flex items-center gap-1 sm:gap-2">
               <button 
@@ -730,7 +779,6 @@ export default function WebApp() {
             </div>
           )}
 
-          {/* Shopkeeper Navigation */}
           {currentUser.role === 'shopkeeper' && (
             <div className="flex items-center gap-2">
               <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-2">
@@ -740,7 +788,6 @@ export default function WebApp() {
             </div>
           )}
 
-          {/* Super Admin Navigation */}
           {currentUser.role === 'super_admin' && (
             <div className="flex items-center gap-2">
               <span className="bg-purple-600/20 text-purple-300 border border-purple-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-2">
@@ -771,7 +818,7 @@ export default function WebApp() {
                 </h1>
                 
                 <p className="text-slate-400 text-sm sm:text-base leading-relaxed">
-                  Place your order on Hunger, pay directly to the shopkeeper's UPI QR code, and show your collection QR code for auto camera handover.
+                  Place your order on Hunger, pay directly to the shopkeeper's UPI QR code with instant payment verification, and scan your collection QR code for auto handover.
                 </p>
 
                 <div className="flex flex-wrap gap-3 pt-2">
@@ -786,11 +833,11 @@ export default function WebApp() {
               </div>
             </div>
 
-            {/* Campus Canteen Shops */}
+            {/* Campus Canteens */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold font-heading text-slate-100">Campus Canteens ({shops.length})</h2>
-                <span className="text-xs text-slate-400">Live synced with shopkeeper profiles</span>
+                <span className="text-xs text-slate-400">Verified UPI QR Code Enabled</span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -969,13 +1016,28 @@ export default function WebApp() {
           </div>
         )}
 
-        {/* CUSTOMER DASHBOARD: LIVE ORDER TRACKING & QR */}
+        {/* CUSTOMER DASHBOARD: LIVE ORDER TRACKING & PAYMENT STATUS */}
         {currentUser.role === 'customer' && activeTab === 'tracking' && currentOrder && (
           <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 text-center space-y-3 relative overflow-hidden">
-              <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1 rounded-full text-xs font-bold">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                <span>Order #{currentOrder.id} • {currentOrder.shopName}</span>
+              
+              {/* PAYMENT STATUS BADGE ON CUSTOMER DASHBOARD */}
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                <span className={`inline-flex items-center gap-1.5 border px-3 py-1 rounded-full text-xs font-bold ${
+                  currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
+                  currentOrder.paymentStatus === 'Pending' ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' :
+                  'bg-red-500/10 border-red-500/30 text-red-400'
+                }`}>
+                  {currentOrder.paymentStatus === 'Paid' ? '✅ Payment Status: PAID' :
+                   currentOrder.paymentStatus === 'Pending' ? '⏳ Payment Status: PENDING' :
+                   '❌ Payment Status: UNPAID (Cash on Handover)'}
+                </span>
+
+                {currentOrder.transactionId && (
+                  <span className="bg-slate-900 border border-slate-800 text-slate-300 font-mono text-[10px] px-2.5 py-1 rounded-full">
+                    Ref: {currentOrder.transactionId}
+                  </span>
+                )}
               </div>
 
               <h2 className="text-3xl font-extrabold font-heading text-slate-100">
@@ -999,14 +1061,14 @@ export default function WebApp() {
 
             {/* Stepper Steps */}
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-6">
-              <h3 className="font-bold text-sm text-slate-200 border-b border-slate-800 pb-3">Real-time Order Status</h3>
+              <h3 className="font-bold text-sm text-slate-200 border-b border-slate-800 pb-3">Real-time Order & Payment Status</h3>
 
               <div className="space-y-6 relative before:absolute before:left-4 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-800">
                 <div className="flex items-start gap-4 relative z-10">
                   <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold">1</div>
                   <div>
                     <h4 className="font-bold text-sm text-slate-100">Order Confirmed</h4>
-                    <p className="text-xs text-slate-400">Paid to {currentOrder.payeeUpiId}</p>
+                    <p className="text-xs text-slate-400">Method: {currentOrder.paymentMethod} • Status: <span className="text-emerald-400 font-bold">{currentOrder.paymentStatus}</span></p>
                   </div>
                 </div>
 
@@ -1058,7 +1120,7 @@ export default function WebApp() {
           </div>
         )}
 
-        {/* SHOPKEEPER DASHBOARD */}
+        {/* SHOPKEEPER DASHBOARD: SCANNER WITH PAYMENT STATUS VERIFICATION */}
         {currentUser.role === 'shopkeeper' && (
           <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
             
@@ -1078,29 +1140,69 @@ export default function WebApp() {
               <div className="flex items-center gap-2">
                 <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span>Shopkeeper Verified</span>
+                  <span>Verified Scanner Active</span>
                 </span>
               </div>
             </div>
 
-            {/* SECTION A: CAMERA QR AUTO HANDOVER SCANNER */}
+            {/* SECTION A: CAMERA QR SCANNER WITH REAL-TIME PAYMENT STATUS DISPLAY */}
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2">
                   <QrCode className="w-5 h-5 text-emerald-400" />
-                  <h3 className="font-extrabold font-heading text-base text-white">QR Auto Handover Confirmation</h3>
+                  <h3 className="font-extrabold font-heading text-base text-white">QR Auto Handover & Payment Verification</h3>
                 </div>
                 <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2.5 py-0.5 rounded-md">
-                  Strict Camera QR Verification
+                  Server Verified Payment Check
                 </span>
               </div>
 
-              {scanFeedback && (
-                <div className={`p-4 rounded-2xl border text-xs font-bold flex items-center gap-3 animate-fadeIn ${
-                  scanFeedback.success ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300' : 'bg-red-950/80 border-red-500/50 text-red-300'
+              {/* SCAN RESULT BANNER WITH CLEAR PAYMENT STATUS (PAID vs UNPAID) */}
+              {scanResult && (
+                <div className={`p-4 rounded-2xl border text-xs font-bold space-y-2 animate-fadeIn ${
+                  scanResult.isUnpaidWarning ? 'bg-yellow-950/80 border-yellow-500/50 text-yellow-300' :
+                  scanResult.success ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300' :
+                  'bg-red-950/80 border-red-500/50 text-red-300'
                 }`}>
-                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                  <span>{scanFeedback.message}</span>
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 space-y-1">
+                      <p className="text-sm font-extrabold">{scanResult.message}</p>
+                      
+                      {scanResult.paymentStatus && (
+                        <div className="flex items-center gap-3 pt-1 text-xs">
+                          <span className={`px-2.5 py-0.5 rounded-md font-bold uppercase border ${
+                            scanResult.paymentStatus === 'Paid' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
+                            scanResult.paymentStatus === 'Pending' ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40' :
+                            'bg-red-500/20 text-red-300 border-red-500/40'
+                          }`}>
+                            Payment: {scanResult.paymentStatus}
+                          </span>
+                          
+                          {scanResult.paymentMethod && (
+                            <span className="text-slate-300 font-normal">Method: {scanResult.paymentMethod}</span>
+                          )}
+
+                          {scanResult.transactionId && (
+                            <span className="font-mono text-[11px] text-slate-300">Txn: {scanResult.transactionId}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* UNPAID SAFEGUARD OVERRIDE BUTTON FOR SHOPKEEPER (CASH ON HANDOVER) */}
+                  {scanResult.isUnpaidWarning && scanResult.orderId && (
+                    <div className="pt-2 flex items-center gap-3 border-t border-yellow-500/30">
+                      <button 
+                        onClick={() => handleMarkOrderPaidCash(scanResult.orderId!)}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/30"
+                      >
+                        <DollarSign className="w-4 h-4" />
+                        <span>Collect Cash (₹{currentOrder?.grandTotal || 0}) & Mark as Paid 💵</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1145,7 +1247,7 @@ export default function WebApp() {
               </div>
             </div>
 
-            {/* SECTION B: INCOMING CANTEEN ORDERS */}
+            {/* SECTION B: INCOMING CANTEEN ORDERS WITH PAYMENT STATUS BADGES */}
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
               <h3 className="font-extrabold font-heading text-base text-white border-b border-slate-800 pb-3">
                 Incoming Canteen Orders ({currentOrder && currentOrder.shopId === activeShopForOwner.id ? 1 : 0})
@@ -1154,10 +1256,24 @@ export default function WebApp() {
               {currentOrder && currentOrder.shopId === activeShopForOwner.id ? (
                 <div className="glass-card p-5 rounded-2xl space-y-4 border border-slate-800">
                   <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
-                    <div>
-                      <h4 className="font-bold text-sm text-white">Order #{currentOrder.id} • {currentOrder.customerName}</h4>
-                      <p className="text-[11px] text-slate-400">Placed at {currentOrder.createdAt} • Total: ₹{currentOrder.grandTotal}</p>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-sm text-white">Order #{currentOrder.id} • {currentOrder.customerName}</h4>
+                        
+                        {/* PAYMENT STATUS BADGE ON SHOPKEEPER INCOMING ORDER */}
+                        <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border uppercase ${
+                          currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' :
+                          currentOrder.paymentStatus === 'Pending' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40' :
+                          'bg-red-500/20 text-red-400 border-red-500/40'
+                        }`}>
+                          {currentOrder.paymentStatus === 'Paid' ? '✅ Paid' :
+                           currentOrder.paymentStatus === 'Pending' ? '⏳ Pending' :
+                           '❌ Unpaid (Cash)'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">Placed at {currentOrder.createdAt} • Total: ₹{currentOrder.grandTotal} ({currentOrder.paymentMethod})</p>
                     </div>
+
                     <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
                       currentOrder.status === 'Completed' ? 'bg-blue-500/20 text-blue-400 border-blue-500/40' :
                       currentOrder.status === 'Food Ready' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' :
@@ -1192,6 +1308,17 @@ export default function WebApp() {
                       </button>
                     )}
 
+                    {/* MANUAL CASH OVERRIDE BUTTON IF UNPAID */}
+                    {currentOrder.paymentStatus !== 'Paid' && (
+                      <button 
+                        onClick={() => handleMarkOrderPaidCash(currentOrder.id)}
+                        className="bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/40 font-bold px-3 py-2 rounded-xl text-xs transition flex items-center gap-1.5"
+                      >
+                        <DollarSign className="w-4 h-4" />
+                        <span>Mark Paid (Cash Collected)</span>
+                      </button>
+                    )}
+
                     {currentOrder.status === 'Food Ready' && (
                       <div className="bg-blue-600/10 border border-blue-600/30 text-blue-400 text-xs px-3 py-2 rounded-xl font-semibold flex items-center gap-2">
                         <QrCode className="w-4 h-4" />
@@ -1207,7 +1334,7 @@ export default function WebApp() {
               )}
             </div>
 
-            {/* SECTION C: FOOD MENU MANAGEMENT (WITH LIVE CUSTOMER DASHBOARD PERSISTENCE) */}
+            {/* SECTION C: FOOD MENU MANAGEMENT */}
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div>
@@ -1396,7 +1523,7 @@ export default function WebApp() {
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
               <h3 className="font-extrabold font-heading text-base text-white border-b border-slate-800 pb-3 flex items-center gap-2">
                 <BarChart3 className="w-5 h-5 text-emerald-400" />
-                <span>All-Canteens Real-Time Order Audit</span>
+                <span>All-Canteens Real-Time Order & Payment Audit</span>
               </h3>
 
               {ordersHistory.length > 0 ? (
@@ -1404,7 +1531,14 @@ export default function WebApp() {
                   {ordersHistory.map(o => (
                     <div key={o.id} className="glass-card p-4 rounded-2xl flex items-center justify-between text-xs border border-slate-800">
                       <div>
-                        <span className="font-bold text-white">Order #{o.id}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-white">Order #{o.id}</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                            o.paymentStatus === 'Paid' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                          }`}>
+                            {o.paymentStatus}
+                          </span>
+                        </div>
                         <p className="text-slate-400">{o.shopName} • Customer: {o.customerName}</p>
                       </div>
                       <div className="text-right">
@@ -1423,7 +1557,7 @@ export default function WebApp() {
 
       </main>
 
-      {/* SUPER ADMIN: ADD NEW SHOPKEEPER MODAL */}
+      {/* SUPER ADMIN MODAL */}
       {isAddShopkeeperOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
           <div className="w-full max-w-md glass-panel border border-purple-500/40 p-6 rounded-3xl space-y-4 shadow-2xl relative">
@@ -1481,7 +1615,7 @@ export default function WebApp() {
         </div>
       )}
 
-      {/* FOOD MENU ITEM MODAL */}
+      {/* FOOD ITEM MODAL */}
       {isItemModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
           <div className="w-full max-w-lg glass-panel border border-slate-800 p-6 rounded-3xl space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
@@ -1629,7 +1763,7 @@ export default function WebApp() {
                   onClick={() => setIsCheckoutOpen(true)}
                   className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-bold py-3 rounded-xl text-sm"
                 >
-                  Pay via {currentCheckoutShop.name}'s UPI
+                  Pay via {currentCheckoutShop.name}'s UPI &rarr;
                 </button>
               </div>
             )}
@@ -1637,35 +1771,78 @@ export default function WebApp() {
         </div>
       )}
 
-      {/* DYNAMIC CHECKOUT MODAL */}
+      {/* DYNAMIC CHECKOUT MODAL WITH VERIFIED PAYMENT METHODS */}
       {isCheckoutOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
           <div className="w-full max-w-lg glass-panel border border-slate-800 p-6 rounded-3xl space-y-5 shadow-2xl relative">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
-                <h3 className="font-extrabold font-heading text-lg text-white">Pay Direct to {currentCheckoutShop.name}</h3>
-                <p className="text-xs text-slate-400">Shop UPI: <span className="text-emerald-400 font-mono">{currentCheckoutShop.upiId}</span></p>
+                <h3 className="font-extrabold font-heading text-lg text-white">Select Payment Mode for {currentCheckoutShop.name}</h3>
+                <p className="text-xs text-slate-400">Shop UPI VPA: <span className="text-emerald-400 font-mono">{currentCheckoutShop.upiId}</span></p>
               </div>
               <button onClick={() => setIsCheckoutOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-center space-y-3">
-              <span className="text-xs font-semibold text-slate-300">Scan Shop's Uploaded UPI QR Code</span>
-              <div className="w-44 h-44 bg-white p-2.5 rounded-xl mx-auto flex items-center justify-center shadow-lg border-2 border-blue-600/20">
-                <img 
-                  src={currentCheckoutShop.qrImageUrl} 
-                  alt="Shop Payment QR" 
-                  className="w-full h-full object-contain"
-                />
-              </div>
-              <p className="text-[11px] text-slate-400">100% direct payment to shop bank account</p>
+            {/* Payment Method Selector */}
+            <div className="grid grid-cols-2 gap-3">
+              <button 
+                onClick={() => setSelectedPaymentMethod('Online UPI')}
+                className={`p-3.5 rounded-2xl border text-left space-y-1 transition ${
+                  selectedPaymentMethod === 'Online UPI' 
+                    ? 'bg-blue-600/20 border-blue-500 text-white shadow-lg shadow-blue-500/20' 
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs">Online UPI (Server Verified)</span>
+                  <Smartphone className="w-4 h-4 text-emerald-400" />
+                </div>
+                <p className="text-[10px] text-slate-400">GPay / PhonePe / Paytm direct UPI settlement</p>
+              </button>
+
+              <button 
+                onClick={() => setSelectedPaymentMethod('Cash on Handover')}
+                className={`p-3.5 rounded-2xl border text-left space-y-1 transition ${
+                  selectedPaymentMethod === 'Cash on Handover' 
+                    ? 'bg-emerald-600/20 border-emerald-500 text-white shadow-lg shadow-emerald-500/20' 
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs">Cash on Handover</span>
+                  <DollarSign className="w-4 h-4 text-emerald-400" />
+                </div>
+                <p className="text-[10px] text-slate-400">Pay cash at counter when collecting food</p>
+              </button>
             </div>
+
+            {selectedPaymentMethod === 'Online UPI' ? (
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-center space-y-3">
+                <span className="text-xs font-semibold text-slate-300">Scan Shop's Uploaded UPI QR Code</span>
+                <div className="w-44 h-44 bg-white p-2.5 rounded-xl mx-auto flex items-center justify-center shadow-lg border-2 border-blue-600/20">
+                  <img 
+                    src={currentCheckoutShop.qrImageUrl} 
+                    alt="Shop Payment QR" 
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400">Server verified transaction confirmation</p>
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-yellow-500/30 p-4 rounded-2xl text-center space-y-2 text-yellow-300">
+                <AlertCircle className="w-6 h-6 mx-auto text-yellow-400" />
+                <h4 className="font-bold text-xs">Cash on Handover Selected</h4>
+                <p className="text-[11px] text-slate-400">
+                  Your order payment status will show <span className="text-red-400 font-bold">UNPAID</span> until you pay ₹{cartTotal + 15} cash to the shopkeeper at the counter.
+                </p>
+              </div>
+            )}
 
             <button 
               onClick={handlePlaceOrder}
               className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-extrabold py-3.5 rounded-2xl text-sm shadow-xl shadow-blue-700/30"
             >
-              Confirm Payment & Place Order &rarr;
+              Confirm Order & Pay ₹{cartTotal + 15} &rarr;
             </button>
           </div>
         </div>

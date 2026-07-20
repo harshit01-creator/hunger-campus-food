@@ -31,7 +31,7 @@ export default function CartScreen() {
       shopId: 'spice-route-kitchen',
       items: LINE_ITEMS,
       grandTotal: GRAND_TOTAL,
-      paymentMethod: method,
+      paymentMethod: 'Online UPI',
     });
     navigation.navigate('OrderTracking', {orderId: order.orderId});
   };
