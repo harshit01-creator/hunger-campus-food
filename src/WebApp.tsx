@@ -5,7 +5,7 @@ import {
   Utensils, Store, User, Bell, Flame, Filter, RefreshCw, X, ShieldCheck,
   Camera, Lock, Edit3, Trash2, Calendar, AlertCircle, LogOut, Check, Upload,
   Users, Shield, BarChart3, AlertTriangle, Key, Mail, Eye, EyeOff, LogIn, DollarSign,
-  Video, VideoOff, Sun, Moon, Globe, Star, Share2, Copy, TrendingUp
+  Video, VideoOff, Sun, Moon, Globe, Star, Share2, Copy, TrendingUp, Tag, Percent, Ban, RotateCcw
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import kprLogo from './assets/logo.png';
@@ -18,7 +18,9 @@ import {
   markFoodReady as markFoodReadyApi,
   markAsPaidByShopkeeper as markAsPaidByShopkeeperApi,
   verifyAndProcessQrHandover as verifyAndProcessQrHandoverApi,
-  OrderDoc, PaymentStatus, PaymentMethod, QrHandoverResult
+  acceptOrder as acceptOrderApi,
+  cancelOrder as cancelOrderApi,
+  OrderDoc, PaymentStatus, PaymentMethod, QrHandoverResult, OrderStatus
 } from './services/orders';
 import {
   ShopAccount, FoodItem, loadShops, saveShops, loadMenuItems, saveMenuItems,
@@ -26,9 +28,15 @@ import {
   fetchShopsFromSupabase, fetchMenuItemsFromSupabase, getCategoryDefaultImage, toggleSpecialStatus
 } from './services/shopsAndMenu';
 import { LanguageCode, getSavedLanguage, saveLanguage, t } from './services/i18n';
+import {
+  DiscountOffer, loadDiscounts, saveDiscounts, fetchDiscountsFromSupabase,
+  addOrUpdateDiscount, deleteDiscountById, getDiscountedPrice
+} from './services/discounts';
 
 interface CartItem extends FoodItem {
   qty: number;
+  originalPrice: number;
+  discountedPrice: number;
 }
 
 interface Order {
@@ -43,17 +51,21 @@ interface Order {
   paymentStatus: PaymentStatus;
   transactionId?: string;
   paidAt?: string;
-  status: 'Order Confirmed' | 'Being Prepared' | 'Food Ready' | 'Completed';
+  status: OrderStatus;
   createdAt: string;
   estimatedMinutes: number;
   qrToken: string;
   handedOverAt?: string;
   payeeUpiId: string;
   payeeQrUrl?: string;
+  cancelledBy?: 'customer' | 'shopkeeper';
+  cancelledAt?: string;
+  cancellationReason?: string;
+  appliedDiscount?: { code: string; title: string; amountSaved: number };
 }
 
 export default function WebApp() {
-  // Theme State (Persisted in localStorage with System fallback)
+  // Theme State
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
       const saved = localStorage.getItem('hunger_theme_pref');
@@ -93,6 +105,7 @@ export default function WebApp() {
   // Master Data State (Persisted & Real-Time Synced)
   const [shops, setShops] = useState<ShopAccount[]>(() => loadShops());
   const [menuItems, setMenuItems] = useState<FoodItem[]>(() => loadMenuItems());
+  const [discounts, setDiscounts] = useState<DiscountOffer[]>(() => loadDiscounts());
   const [cart, setCart] = useState<CartItem[]>([]);
   const [ordersHistory, setOrdersHistory] = useState<Order[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -101,28 +114,53 @@ export default function WebApp() {
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
 
+  // Discount Offer Manager Modal State
+  const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
+  const [discountForm, setDiscountForm] = useState<{
+    code: string;
+    title: string;
+    type: 'percentage' | 'flat';
+    value: number;
+    appliesTo: 'shop' | 'category' | 'items';
+    categoryName: string;
+    isActive: boolean;
+  }>({
+    code: 'SALE20',
+    title: 'Special 20% Off Category Offer',
+    type: 'percentage',
+    value: 20,
+    appliesTo: 'category',
+    categoryName: 'Fast Food',
+    isActive: true
+  });
+
   // Real-Time Event Listener & Cloud Database Hydration
   useEffect(() => {
     fetchShopsFromSupabase().then(dbShops => setShops(dbShops));
     fetchMenuItemsFromSupabase().then(dbMenu => setMenuItems(dbMenu));
+    fetchDiscountsFromSupabase().then(dbDisc => setDiscounts(dbDisc));
 
     const handleSync = async () => {
       const dbShops = await fetchShopsFromSupabase();
       const dbMenu = await fetchMenuItemsFromSupabase();
+      const dbDisc = await fetchDiscountsFromSupabase();
       setShops(dbShops);
       setMenuItems(dbMenu);
+      setDiscounts(dbDisc);
       setLastSyncTime(new Date().toLocaleTimeString());
     };
 
     window.addEventListener('storage', handleSync);
     window.addEventListener('hunger_shops_updated', handleSync);
     window.addEventListener('hunger_menu_updated', handleSync);
+    window.addEventListener('hunger_discounts_updated', handleSync);
     window.addEventListener('focus', handleSync);
 
     return () => {
       window.removeEventListener('storage', handleSync);
       window.removeEventListener('hunger_shops_updated', handleSync);
       window.removeEventListener('hunger_menu_updated', handleSync);
+      window.removeEventListener('hunger_discounts_updated', handleSync);
       window.removeEventListener('focus', handleSync);
     };
   }, []);
@@ -184,7 +222,7 @@ export default function WebApp() {
 
   useEffect(() => {
     let interval: any;
-    if (currentOrder && currentOrder.status === 'Being Prepared') {
+    if (currentOrder && currentOrder.status === 'Accepted') {
       interval = setInterval(() => {
         setPrepProgress(prev => {
           if (prev >= 100) {
@@ -258,12 +296,13 @@ export default function WebApp() {
 
   const addToCart = (item: FoodItem) => {
     if (!isItemInTimeSlot(item)) return;
+    const { finalPrice } = getDiscountedPrice(item, discounts);
     setCart(prev => {
       const existing = prev.find(i => i.id === item.id);
       if (existing) {
         return prev.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i);
       }
-      return [...prev, { ...item, qty: 1 }];
+      return [...prev, { ...item, qty: 1, originalPrice: item.price, discountedPrice: finalPrice }];
     });
   };
 
@@ -277,7 +316,7 @@ export default function WebApp() {
     }).filter(Boolean) as CartItem[]);
   };
 
-  const cartTotal = cart.reduce((acc, item) => acc + item.price * item.qty, 0);
+  const cartSubtotal = cart.reduce((acc, item) => acc + item.discountedPrice * item.qty, 0);
   const totalItemsCount = cart.reduce((acc, item) => acc + item.qty, 0);
 
   const currentCheckoutShop = cart.length > 0 ? shops.find(s => s.id === cart[0].shopId) || shops[0] : shops[0];
@@ -321,16 +360,18 @@ export default function WebApp() {
     setActiveTab('home');
   };
 
-  // UNIQUE PER-ORDER PLACEMENT WITH CRYPTOGRAPHIC TOKEN GENERATION
+  // UNIQUE PER-ORDER PLACEMENT WITH DISCOUNT PRESERVATION & STATUS: 'Pending'
   const handlePlaceOrder = async () => {
     if (cart.length === 0) return;
     const targetShop = currentCheckoutShop;
     const isOnline = selectedPaymentMethod === 'Online UPI';
 
+    const grandTotal = cartSubtotal + 15;
+
     const apiRes = await createOrderApi({
       shopId: targetShop.id,
-      items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty })),
-      grandTotal: cartTotal + 15,
+      items: cart.map(i => ({ id: i.id, name: i.name, price: i.discountedPrice, qty: i.qty })),
+      grandTotal,
       paymentMethod: selectedPaymentMethod,
       isOnlineVerified: isOnline
     });
@@ -345,12 +386,12 @@ export default function WebApp() {
       customerId: currentUser?.id || 'guest-1',
       customerName: currentUser?.name || 'Student Customer',
       items: [...cart],
-      grandTotal: cartTotal + 15,
+      grandTotal,
       paymentMethod: selectedPaymentMethod,
       paymentStatus: apiRes.paymentStatus,
       transactionId: apiRes.transactionId,
       paidAt: apiRes.paymentStatus === 'Paid' ? new Date().toLocaleTimeString() : undefined,
-      status: 'Order Confirmed',
+      status: 'Pending', // Starts in Pending status awaiting shopkeeper acceptance!
       createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       estimatedMinutes: 12,
       qrToken: uniqueQrToken,
@@ -370,10 +411,64 @@ export default function WebApp() {
       spread: 70,
       origin: { y: 0.6 }
     });
+  };
 
-    setTimeout(() => {
-      setCurrentOrder(prev => prev ? { ...prev, status: 'Being Prepared' } : null);
-    }, 3500);
+  // FEATURE 2: ORDER CANCELLATION (BEFORE ORDER IS ACCEPTED)
+  const handleCustomerCancelOrder = async (orderIdToCancel: string) => {
+    if (!currentOrder || currentOrder.id !== orderIdToCancel) return;
+
+    if (currentOrder.status !== 'Pending') {
+      alert(`⚠️ Cannot cancel order #${orderIdToCancel}: The shopkeeper has already accepted and started preparing your order!`);
+      return;
+    }
+
+    if (confirm(`Are you sure you want to cancel Order #${orderIdToCancel}?`)) {
+      const apiRes = await cancelOrderApi(orderIdToCancel, 'customer', 'Customer cancelled before acceptance');
+      if (apiRes.success) {
+        const updated: Order = {
+          ...currentOrder,
+          status: 'Cancelled',
+          paymentStatus: apiRes.refundStatus || currentOrder.paymentStatus,
+          cancelledBy: 'customer',
+          cancelledAt: new Date().toLocaleTimeString(),
+          cancellationReason: 'Customer cancelled before acceptance'
+        };
+        setCurrentOrder(updated);
+        setOrdersHistory(prev => prev.map(o => o.id === orderIdToCancel ? updated : o));
+        alert(`✅ Order #${orderIdToCancel} has been cancelled.${apiRes.refundStatus === 'Refund Pending' ? ' Refund marked for processing.' : ''}`);
+      } else {
+        alert(`❌ Cancellation failed: ${apiRes.message}`);
+      }
+    }
+  };
+
+  // SHOPKEEPER ACCEPT ORDER ACTION (Moves Pending -> Accepted)
+  const handleShopkeeperAcceptOrder = async (orderIdToAccept: string) => {
+    await acceptOrderApi(orderIdToAccept);
+    if (currentOrder && currentOrder.id === orderIdToAccept) {
+      const updated: Order = { ...currentOrder, status: 'Accepted' };
+      setCurrentOrder(updated);
+      setOrdersHistory(prev => prev.map(o => o.id === orderIdToAccept ? updated : o));
+    }
+  };
+
+  // SHOPKEEPER REJECT/CANCEL PENDING ORDER
+  const handleShopkeeperRejectOrder = async (orderIdToReject: string) => {
+    if (confirm(`Reject/Cancel Order #${orderIdToReject}?`)) {
+      const apiRes = await cancelOrderApi(orderIdToReject, 'shopkeeper', 'Item out of stock or canteen busy');
+      if (apiRes.success && currentOrder && currentOrder.id === orderIdToReject) {
+        const updated: Order = {
+          ...currentOrder,
+          status: 'Cancelled',
+          paymentStatus: apiRes.refundStatus || currentOrder.paymentStatus,
+          cancelledBy: 'shopkeeper',
+          cancelledAt: new Date().toLocaleTimeString(),
+          cancellationReason: 'Rejected by Shopkeeper'
+        };
+        setCurrentOrder(updated);
+        setOrdersHistory(prev => prev.map(o => o.id === orderIdToReject ? updated : o));
+      }
+    }
   };
 
   // SHOPKEEPER MANUAL CASH PAYMENT OVERRIDE
@@ -452,6 +547,16 @@ export default function WebApp() {
           paymentStatus: currentOrder.paymentStatus,
           paymentMethod: currentOrder.paymentMethod,
           transactionId: currentOrder.transactionId
+        });
+        return;
+      }
+
+      if (currentOrder.status === 'Cancelled') {
+        setScanResult({
+          success: false,
+          message: `Order #${currentOrder.id} was CANCELLED by ${currentOrder.cancelledBy || 'user'}. Handover blocked.`,
+          paymentStatus: currentOrder.paymentStatus,
+          paymentMethod: currentOrder.paymentMethod
         });
         return;
       }
@@ -560,21 +665,56 @@ export default function WebApp() {
     }
   };
 
-  // SHOPKEEPER 3: ADD OR EDIT FOOD ITEM (WITH FEATURE 6: CATEGORY-BASED AUTO DEFAULT IMAGE)
+  // SHOPKEEPER / SUPER ADMIN: CREATE / SAVE DISCOUNT OFFER
+  const handleSaveDiscount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const activeShopId = currentUser?.shopId || 'shop-1';
+      const newDisc: DiscountOffer = {
+        id: `disc-${Date.now()}`,
+        shopId: activeShopId,
+        code: discountForm.code.toUpperCase(),
+        title: discountForm.title,
+        type: discountForm.type,
+        value: discountForm.value,
+        appliesTo: discountForm.appliesTo,
+        categoryName: discountForm.categoryName,
+        validFrom: new Date().toISOString(),
+        validUntil: '2026-12-31T23:59',
+        isActive: discountForm.isActive,
+        createdAt: Date.now()
+      };
+
+      const updatedDiscounts = await addOrUpdateDiscount(newDisc);
+      setDiscounts(updatedDiscounts);
+      setIsDiscountModalOpen(false);
+      alert(`✅ Discount offer "${newDisc.code}" saved & active on shop menu!`);
+    } catch (err: any) {
+      alert(`❌ Error saving discount offer: ${err.message || 'Failed'}`);
+    }
+  };
+
+  // DELETE DISCOUNT OFFER
+  const handleDeleteDiscount = async (discId: string) => {
+    if (confirm(`Delete discount offer?`)) {
+      const updated = await deleteDiscountById(discId);
+      setDiscounts(updated);
+    }
+  };
+
+  // SHOPKEEPER 3: ADD OR EDIT FOOD ITEM
   const handleSaveFoodItem = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const activeShopId = currentUser?.shopId || 'shop-1';
       const activeShop = shops.find(s => s.id === activeShopId) || shops[0];
-
-      // Auto-assign category default image if blank
       const finalImage = getCategoryDefaultImage(itemForm.category, itemForm.image);
 
       const itemToSave: FoodItem = editingItem ? {
         ...editingItem,
         ...itemForm,
         image: finalImage,
-        id: editingItem.id, // Preserve ID on edit!
+        id: editingItem.id,
         shopId: activeShop.id,
         shopName: activeShop.name
       } : {
@@ -613,7 +753,7 @@ export default function WebApp() {
     }
   };
 
-  // FEATURE 4: TOGGLE TODAY'S SPECIAL DISH
+  // TOGGLE TODAY'S SPECIAL DISH
   const handleToggleSpecial = async (itemId: string) => {
     const updatedMenu = await toggleSpecialStatus(itemId);
     setMenuItems(updatedMenu);
@@ -668,17 +808,20 @@ export default function WebApp() {
   const triggerManualSync = async () => {
     const dbShops = await fetchShopsFromSupabase();
     const dbMenu = await fetchMenuItemsFromSupabase();
+    const dbDisc = await fetchDiscountsFromSupabase();
     setShops(dbShops);
     setMenuItems(dbMenu);
+    setDiscounts(dbDisc);
     setLastSyncTime(new Date().toLocaleTimeString());
   };
 
-  // FEATURE 5: SALES & REVENUE ANALYTICS CALCULATIONS
+  // SALES & REVENUE ANALYTICS CALCULATIONS
   const targetShopOrders = ordersHistory.filter(o => currentUser?.role === 'super_admin' || o.shopId === activeShopForOwner.id);
   const totalSalesRevenue = targetShopOrders.filter(o => o.paymentStatus === 'Paid').reduce((sum, o) => sum + o.grandTotal, 0);
   const paidOrdersCount = targetShopOrders.filter(o => o.paymentStatus === 'Paid').length;
-  const unpaidOrdersCount = targetShopOrders.filter(o => o.paymentStatus !== 'Paid').length;
+  const unpaidOrdersCount = targetShopOrders.filter(o => o.paymentStatus === 'Unpaid').length;
   const completedHandoverCount = targetShopOrders.filter(o => o.status === 'Completed').length;
+  const cancelledOrdersCount = targetShopOrders.filter(o => o.status === 'Cancelled').length;
 
   // Best selling dishes calculation
   const dishSalesMap: Record<string, { name: string; qty: number; total: number }> = {};
@@ -688,7 +831,7 @@ export default function WebApp() {
         dishSalesMap[item.name] = { name: item.name, qty: 0, total: 0 };
       }
       dishSalesMap[item.name].qty += item.qty;
-      dishSalesMap[item.name].total += item.price * item.qty;
+      dishSalesMap[item.name].total += item.discountedPrice * item.qty;
     });
   });
 
@@ -859,7 +1002,7 @@ export default function WebApp() {
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input 
               type="text"
-              placeholder="Search dishes, drinks, canteens..."
+              placeholder="Search dishes, discounts, canteens..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className={`w-full border rounded-xl pl-9 pr-4 py-1.5 text-xs focus:outline-none focus:border-blue-500 transition ${
@@ -870,7 +1013,6 @@ export default function WebApp() {
 
           <div className="flex items-center gap-2.5">
             
-            {/* Language Selector */}
             <select 
               value={currentLang} 
               onChange={(e) => handleLangChange(e.target.value as LanguageCode)}
@@ -883,7 +1025,6 @@ export default function WebApp() {
               <option value="ta">🇮🇳 TA</option>
             </select>
 
-            {/* Vercel Link Share */}
             <button 
               onClick={() => setIsVercelModalOpen(true)}
               className={`p-2 rounded-xl text-xs font-bold transition border flex items-center gap-1.5 ${
@@ -895,7 +1036,6 @@ export default function WebApp() {
               <span className="hidden md:inline">{t('copyVercelLink', currentLang)}</span>
             </button>
 
-            {/* Theme Toggle Button */}
             <button 
               onClick={toggleTheme}
               className={`p-2 rounded-xl text-xs font-bold transition border ${
@@ -1028,6 +1168,32 @@ export default function WebApp() {
               </div>
             </div>
 
+            {/* FEATURE 4: DISCOUNT & SALES OFFERS BANNER */}
+            {discounts.filter(d => d.isActive).length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-extrabold flex items-center gap-2 text-emerald-400">
+                  <Tag className="w-4 h-4" />
+                  <span>Active Shop Discounts & Offers</span>
+                </h3>
+                <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
+                  {discounts.filter(d => d.isActive).map(disc => (
+                    <div key={disc.id} className="min-w-[280px] bg-gradient-to-r from-emerald-950/80 to-slate-900 border border-emerald-500/40 p-3.5 rounded-2xl flex items-center justify-between text-xs">
+                      <div>
+                        <span className="bg-emerald-500/20 text-emerald-300 font-extrabold px-2 py-0.5 rounded text-[10px]">
+                          {disc.code}
+                        </span>
+                        <h4 className="font-bold text-white mt-1">{disc.title}</h4>
+                        <p className="text-[11px] text-slate-400">
+                          {disc.type === 'percentage' ? `${disc.value}% OFF` : `₹${disc.value} OFF`} ({disc.appliesTo})
+                        </p>
+                      </div>
+                      <Percent className="w-8 h-8 text-emerald-400/40 flex-shrink-0" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Campus Canteens */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -1072,7 +1238,7 @@ export default function WebApp() {
               </div>
             </div>
 
-            {/* FEATURED & TODAY'S SPECIAL DISHES */}
+            {/* FEATURED DISHES WITH STRIKETHROUGH DISCOUNTED PRICING */}
             <div className="space-y-4 pt-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold font-heading">{t('featuredDishes', currentLang)} ({filteredMenu.length})</h2>
@@ -1082,17 +1248,26 @@ export default function WebApp() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredMenu.slice(0, 6).map(item => {
                   const availableNow = isItemInTimeSlot(item);
+                  const { finalPrice, discountAmount, appliedOffer } = getDiscountedPrice(item, discounts);
+                  const hasDiscount = discountAmount > 0;
+
                   return (
                     <div key={item.id} className={`rounded-2xl overflow-hidden flex flex-col justify-between group border relative transition ${
                       item.isSpecial ? 'border-amber-400/80 shadow-lg shadow-amber-400/10' :
                       theme === 'dark' ? 'glass-card border-slate-800' : 'bg-white border-slate-200 shadow-md'
                     }`}>
                       
-                      {/* FEATURE 4: TODAY'S SPECIAL BADGE */}
                       {item.isSpecial && (
                         <div className="absolute top-3 right-3 z-20 bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-extrabold text-[10px] px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1 animate-pulse">
                           <Star className="w-3.5 h-3.5 fill-slate-950" />
                           <span>{t('todaysSpecial', currentLang)}</span>
+                        </div>
+                      )}
+
+                      {hasDiscount && (
+                        <div className="absolute top-3 left-3 z-20 bg-gradient-to-r from-emerald-600 to-teal-500 text-white font-extrabold text-[10px] px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1">
+                          <Tag className="w-3.5 h-3.5" />
+                          <span>{appliedOffer?.type === 'percentage' ? `${appliedOffer.value}% OFF` : `₹${discountAmount} OFF`}</span>
                         </div>
                       )}
 
@@ -1103,9 +1278,6 @@ export default function WebApp() {
                             alt={item.name}
                             className={`w-full h-full object-cover group-hover:scale-105 transition duration-500 ${!availableNow ? 'grayscale opacity-60' : ''}`} 
                           />
-                          <div className="absolute top-3 left-3 bg-slate-900/90 backdrop-blur-md border border-slate-800 text-[11px] font-semibold text-slate-200 px-2.5 py-1 rounded-lg">
-                            {item.shopName}
-                          </div>
                           
                           <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-md border ${availableNow ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-400' : 'bg-red-950/80 border-red-500/40 text-red-400'}`}>
@@ -1126,7 +1298,12 @@ export default function WebApp() {
                       <div className="p-4 pt-0 flex items-center justify-between border-t border-slate-800/60 mt-3">
                         <div>
                           <span className="text-xs text-slate-400">Price</span>
-                          <p className="font-heading font-extrabold text-lg">₹{item.price}</p>
+                          <div className="flex items-center gap-2">
+                            {hasDiscount && (
+                              <span className="text-xs text-slate-500 line-through">₹{item.price}</span>
+                            )}
+                            <span className="font-heading font-extrabold text-lg text-emerald-400">₹{finalPrice}</span>
+                          </div>
                         </div>
 
                         <button 
@@ -1150,92 +1327,120 @@ export default function WebApp() {
           </div>
         )}
 
-        {/* CUSTOMER DASHBOARD: FULL MENU */}
-        {currentUser.role === 'customer' && activeTab === 'menu' && (
-          <div className="space-y-6 animate-fadeIn">
-            <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl border ${
-              theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-md'
-            }`}>
-              <div>
-                <h2 className="text-2xl font-extrabold font-heading">{t('fullMenu', currentLang)} ({filteredMenu.length} items)</h2>
-                <p className="text-xs text-slate-400">Time-slot availability & shop payment QR enabled</p>
+        {/* CUSTOMER DASHBOARD: LIVE ORDER & ORDER CANCELLATION ENGINE */}
+        {currentUser.role === 'customer' && activeTab === 'tracking' && currentOrder && (
+          <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
+            <div className="glass-panel p-6 rounded-3xl border border-slate-800 text-center space-y-3 relative overflow-hidden">
+              
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                <span className={`inline-flex items-center gap-1.5 border px-3 py-1 rounded-full text-xs font-bold ${
+                  currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
+                  currentOrder.paymentStatus === 'Refund Pending' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
+                  currentOrder.paymentStatus === 'Pending' ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' :
+                  'bg-red-500/10 border-red-500/30 text-red-400'
+                }`}>
+                  {currentOrder.paymentStatus === 'Paid' ? '✅ Paid' :
+                   currentOrder.paymentStatus === 'Refund Pending' ? '🔄 Refund Pending' :
+                   currentOrder.paymentStatus === 'Pending' ? '⏳ Payment Pending' :
+                   '❌ Unpaid (Cash on Handover)'}
+                </span>
+
+                {currentOrder.transactionId && (
+                  <span className="bg-slate-900 border border-slate-800 text-slate-300 font-mono text-[10px] px-2.5 py-1 rounded-full">
+                    Ref: {currentOrder.transactionId}
+                  </span>
+                )}
               </div>
 
-              <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-emerald-400" />
-                <select 
-                  value={selectedShopId} 
-                  onChange={(e) => setSelectedShopId(e.target.value)}
-                  className={`text-xs rounded-xl px-3 py-2 border focus:outline-none ${
-                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-800'
-                  }`}
-                >
-                  <option value="all">All Canteens & Shops ({shops.length})</option>
-                  {shops.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
+              <h2 className="text-3xl font-extrabold font-heading">
+                {currentOrder.status === 'Completed' ? '✅ Food Handed Over!' : 
+                 currentOrder.status === 'Cancelled' ? '❌ Order Cancelled' :
+                 currentOrder.status === 'Pending' ? '⏳ Awaiting Shopkeeper Acceptance...' :
+                 currentOrder.status}
+              </h2>
+              
+              <p className="text-xs text-slate-400">
+                {currentOrder.status === 'Pending' 
+                  ? 'Your order is pending acceptance. You can cancel now if needed.' 
+                  : currentOrder.status === 'Cancelled'
+                  ? `Cancelled by ${currentOrder.cancelledBy || 'user'} at ${currentOrder.cancelledAt || ''}`
+                  : 'Show your unique QR code at counter when status is Food Ready'}
+              </p>
+
+              {/* FEATURE 2: ORDER CANCELLATION BUTTON BEFORE ACCEPTANCE */}
+              {currentOrder.status === 'Pending' && (
+                <div className="pt-2">
+                  <button 
+                    onClick={() => handleCustomerCancelOrder(currentOrder.id)}
+                    className="bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold px-5 py-2.5 rounded-2xl text-xs transition shadow-lg shadow-red-950/50 flex items-center gap-2 mx-auto active:scale-95"
+                  >
+                    <Ban className="w-4 h-4 text-red-400" />
+                    <span>Cancel Order #{currentOrder.id} (Before Accepted) 🚫</span>
+                  </button>
+                </div>
+              )}
+
+              <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden p-0.5 border border-slate-800">
+                <div 
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    currentOrder.status === 'Cancelled' ? 'bg-red-500' : 'bg-gradient-to-r from-blue-600 to-emerald-400'
+                  }`} 
+                  style={{ width: `${currentOrder.status === 'Pending' ? 15 : currentOrder.status === 'Accepted' ? 45 : currentOrder.status === 'Food Ready' ? 90 : currentOrder.status === 'Cancelled' ? 100 : 100}%` }}
+                />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredMenu.map(item => {
-                const inCart = cart.find(i => i.id === item.id);
-                const availableNow = isItemInTimeSlot(item);
-                return (
-                  <div key={item.id} className={`rounded-2xl p-4 flex flex-col justify-between space-y-3 border relative ${
-                    item.isSpecial ? 'border-amber-400/80 shadow-lg shadow-amber-400/10' :
-                    theme === 'dark' ? 'glass-card border-slate-800' : 'bg-white border-slate-200 shadow-md'
-                  }`}>
-                    
-                    {item.isSpecial && (
-                      <span className="absolute top-2 right-2 bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-extrabold text-[10px] px-2 py-0.5 rounded-full">
-                        🌟 Special
-                      </span>
-                    )}
+            <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-6">
+              <h3 className="font-bold text-sm text-slate-200 border-b border-slate-800 pb-3">Real-time Order Status Flow</h3>
 
-                    <div className="flex gap-4">
-                      <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className={`w-24 h-24 rounded-xl object-cover ${!availableNow ? 'grayscale opacity-60' : ''}`} />
-                      <div className="flex-1 space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold uppercase text-emerald-400 tracking-wider">{item.shopName}</span>
-                          <span className="text-xs font-semibold text-emerald-400">★ {item.rating}</span>
-                        </div>
-                        <h3 className="font-bold text-sm">{item.name}</h3>
-                        <p className="text-[11px] text-slate-400 line-clamp-2">{item.description}</p>
-                        <p className="font-heading font-extrabold text-base pt-1">₹{item.price}</p>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px]">
-                      <span className={`px-2 py-0.5 rounded ${availableNow ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/30' : 'bg-red-950/80 text-red-400 border border-red-500/30'}`}>
-                        {availableNow ? `Slot: ${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'}` : t('slotClosed', currentLang)}
-                      </span>
-
-                      {inCart ? (
-                        <div className="flex items-center gap-3 bg-blue-700 text-white px-3 py-1 rounded-xl font-bold shadow-md shadow-blue-700/20">
-                          <button onClick={() => updateQty(item.id, -1)}><Minus className="w-3.5 h-3.5" /></button>
-                          <span>{inCart.qty}</span>
-                          <button onClick={() => updateQty(item.id, 1)}><Plus className="w-3.5 h-3.5" /></button>
-                        </div>
-                      ) : (
-                        <button 
-                          disabled={!availableNow}
-                          onClick={() => addToCart(item)}
-                          className={`px-3 py-1.5 rounded-xl font-semibold transition ${
-                            availableNow 
-                              ? 'bg-blue-600/10 hover:bg-blue-600 text-blue-500 hover:text-white border border-blue-600/30 active:scale-95' 
-                              : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
-                          }`}
-                        >
-                          + Add
-                        </button>
-                      )}
-                    </div>
+              <div className="space-y-6 relative before:absolute before:left-4 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-800">
+                <div className="flex items-start gap-4 relative z-10">
+                  <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold">1</div>
+                  <div>
+                    <h4 className="font-bold text-sm">Order Placed (Pending Acceptance)</h4>
+                    <p className="text-xs text-slate-400">Status: <span className="text-yellow-400 font-bold">Pending</span> • Payment: <span className="text-emerald-400 font-bold">{currentOrder.paymentStatus}</span></p>
                   </div>
-                );
-              })}
+                </div>
+
+                <div className="flex items-start gap-4 relative z-10">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Accepted', 'Food Ready', 'Completed'].includes(currentOrder.status) ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>2</div>
+                  <div>
+                    <h4 className="font-bold text-sm">Order Accepted & Preparing</h4>
+                    <p className="text-xs text-slate-400">Accepted by canteen • Cancellation locked</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-4 relative z-10">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Food Ready', 'Completed'].includes(currentOrder.status) ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-400'}`}>3</div>
+                  <div>
+                    <h4 className="font-bold text-sm">Food Ready (Scan QR for Handover)</h4>
+                    <p className="text-xs text-slate-400">Show QR code below to shopkeeper</p>
+                  </div>
+                </div>
+              </div>
             </div>
+
+            {/* UNIQUE SINGLE-USE QR CODE */}
+            {currentOrder.status !== 'Cancelled' && (
+              <div className="glass-card p-6 rounded-3xl border border-slate-800 text-center space-y-4">
+                <div className="inline-flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs text-slate-300">
+                  <QrCode className="w-4 h-4 text-emerald-400" />
+                  <span className="font-semibold">Single-Use Order Collection QR Code</span>
+                </div>
+
+                <div className="w-52 h-52 bg-white p-3 rounded-2xl mx-auto flex items-center justify-center shadow-xl border-4 border-blue-600/20">
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(currentOrder.qrToken)}`} 
+                    alt="Order QR Code"
+                    className="w-full h-full object-contain" 
+                  />
+                </div>
+
+                <p className="text-xs text-slate-400 font-mono">
+                  Order ID: <span className="text-white font-bold">{currentOrder.id}</span>
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -1243,182 +1448,275 @@ export default function WebApp() {
         {(currentUser.role === 'shopkeeper' || currentUser.role === 'super_admin') && (
           <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
             
-            {/* FEATURE 5: SALES & REVENUE ANALYTICS DASHBOARD */}
+            {/* INCOMING PENDING & ACCEPTED ORDERS WITH ACCEPT & REJECT ACTIONS */}
+            <div className={`p-6 rounded-3xl border space-y-4 ${
+              theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+            }`}>
+              <h3 className="font-extrabold font-heading text-base border-b border-slate-800 pb-3 flex items-center justify-between">
+                <span>Incoming Canteen Orders ({currentOrder ? 1 : 0})</span>
+                <span className="text-xs text-slate-400">Accepting locks customer cancellation</span>
+              </h3>
+
+              {currentOrder ? (
+                <div className="glass-card p-5 rounded-2xl space-y-4 border border-slate-800">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-sm">Order #{currentOrder.id} • {currentOrder.customerName}</h4>
+                        
+                        <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border uppercase ${
+                          currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' :
+                          currentOrder.paymentStatus === 'Refund Pending' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
+                          'bg-red-500/20 text-red-400 border-red-500/40'
+                        }`}>
+                          {currentOrder.paymentStatus}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">Placed at {currentOrder.createdAt} • Total: ₹{currentOrder.grandTotal} ({currentOrder.paymentMethod})</p>
+                    </div>
+
+                    <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                      currentOrder.status === 'Pending' ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40 animate-pulse' :
+                      currentOrder.status === 'Accepted' ? 'bg-blue-600/20 text-blue-400 border-blue-600/40' :
+                      currentOrder.status === 'Cancelled' ? 'bg-red-500/20 text-red-400 border-red-500/40' :
+                      'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                    }`}>
+                      {currentOrder.status}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {currentOrder.items.map(item => (
+                      <div key={item.id} className="flex justify-between text-xs bg-slate-900/60 p-2.5 rounded-xl">
+                        <span>{item.qty}x {item.name}</span>
+                        <span className="font-bold">₹{item.discountedPrice * item.qty}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* SHOPKEEPER ORDER ACTION BUTTONS */}
+                  <div className="pt-2 flex flex-wrap items-center gap-3">
+                    {currentOrder.status === 'Pending' && (
+                      <>
+                        <button 
+                          onClick={() => handleShopkeeperAcceptOrder(currentOrder.id)}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/30"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Accept Order & Lock Cancellation ✅</span>
+                        </button>
+                        <button 
+                          onClick={() => handleShopkeeperRejectOrder(currentOrder.id)}
+                          className="bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5"
+                        >
+                          <Ban className="w-4 h-4" />
+                          <span>Reject Order ❌</span>
+                        </button>
+                      </>
+                    )}
+
+                    {currentOrder.status === 'Accepted' && (
+                      <button 
+                        onClick={async () => {
+                          if (currentOrder) {
+                            await markFoodReadyApi(currentOrder.id);
+                            setCurrentOrder(prev => prev ? { ...prev, status: 'Food Ready' } : null);
+                          }
+                        }}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2"
+                      >
+                        <Bell className="w-4 h-4" />
+                        <span>Mark "Food Ready 🔔"</span>
+                      </button>
+                    )}
+
+                    {currentOrder.paymentStatus === 'Unpaid' && (
+                      <button 
+                        onClick={() => handleMarkOrderPaidCash(currentOrder.id)}
+                        className="bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/40 font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5"
+                      >
+                        <DollarSign className="w-4 h-4" />
+                        <span>Collect Cash & Mark Paid</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-6 text-slate-500 text-xs">
+                  No active incoming orders right now.
+                </div>
+              )}
+            </div>
+
+            {/* FEATURE 4: SHOPKEEPER / SUPER ADMIN DISCOUNT & OFFERS MANAGER */}
+            <div className={`p-6 rounded-3xl border space-y-4 ${
+              theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+            }`}>
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Tag className="w-5 h-5 text-emerald-400" />
+                  <h3 className="font-extrabold font-heading text-base">Shop Discount & Sale Offers</h3>
+                </div>
+
+                <button 
+                  onClick={() => setIsDiscountModalOpen(true)}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Create Discount Offer</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {discounts.filter(d => currentUser?.role === 'super_admin' || d.shopId === activeShopForOwner.id).map(disc => (
+                  <div key={disc.id} className="p-4 rounded-2xl border bg-slate-900/60 border-slate-800 flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="bg-emerald-500/20 text-emerald-400 font-extrabold text-xs px-2 py-0.5 rounded">
+                          {disc.code}
+                        </span>
+                        <h4 className="font-bold text-xs">{disc.title}</h4>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Value: {disc.type === 'percentage' ? `${disc.value}% OFF` : `₹${disc.value} OFF`} • Scope: {disc.appliesTo}
+                      </p>
+                    </div>
+
+                    <button 
+                      onClick={() => handleDeleteDiscount(disc.id)}
+                      className="p-1.5 bg-red-950/60 hover:bg-red-900 text-red-400 rounded-lg text-xs"
+                      title="Delete Discount Offer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* FEATURE 5: SALES ANALYTICS DASHBOARD */}
             <div className={`p-6 rounded-3xl border space-y-6 ${
               theme === 'dark' ? 'glass-panel border-emerald-500/40 bg-slate-900' : 'bg-white border-slate-200 shadow-xl'
             }`}>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-2xl text-emerald-400">
                     <TrendingUp className="w-6 h-6" />
                   </div>
                   <div>
                     <h3 className="text-xl font-extrabold font-heading">{t('salesAnalytics', currentLang)}</h3>
-                    <p className="text-xs text-slate-400">Calculated from confirmed order transactions</p>
+                    <p className="text-xs text-slate-400">All-Canteens Real-Time Revenue & Payment Audit</p>
                   </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <select 
-                    value={salesTimeFilter}
-                    onChange={(e) => setSalesTimeFilter(e.target.value as any)}
-                    className={`text-xs rounded-xl px-3 py-1.5 font-bold border focus:outline-none ${
-                      theme === 'dark' ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-800'
-                    }`}
-                  >
-                    <option value="today">Today's Sales</option>
-                    <option value="week">This Week</option>
-                    <option value="all">All Time</option>
-                  </select>
                 </div>
               </div>
 
-              {/* KPI STAT CARDS */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-950 space-y-1">
                   <span className="text-xs text-slate-400">{t('totalRevenue', currentLang)}</span>
                   <p className="font-heading font-extrabold text-2xl text-emerald-400">₹{totalSalesRevenue}</p>
                   <p className="text-[11px] text-slate-400">{paidOrdersCount} Paid Orders</p>
                 </div>
 
-                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-950 space-y-1">
                   <span className="text-xs text-slate-400">{t('totalOrders', currentLang)}</span>
                   <p className="font-heading font-extrabold text-2xl text-blue-400">{targetShopOrders.length}</p>
                   <p className="text-[11px] text-slate-400">{completedHandoverCount} Handed Over</p>
                 </div>
 
-                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-950 space-y-1">
                   <span className="text-xs text-slate-400">Paid vs Unpaid</span>
                   <p className="font-heading font-extrabold text-xl text-emerald-400">
                     {paidOrdersCount} <span className="text-xs text-slate-400">Paid</span> / {unpaidOrdersCount} <span className="text-xs text-red-400">Unpaid</span>
                   </p>
                 </div>
 
-                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <span className="text-xs text-slate-400">Handover Rate</span>
-                  <p className="font-heading font-extrabold text-2xl text-purple-400">
-                    {targetShopOrders.length > 0 ? Math.round((completedHandoverCount / targetShopOrders.length) * 100) : 100}%
-                  </p>
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-950 space-y-1">
+                  <span className="text-xs text-slate-400">Cancellations</span>
+                  <p className="font-heading font-extrabold text-2xl text-red-400">{cancelledOrdersCount}</p>
+                  <p className="text-[11px] text-slate-400">Cancelled before preparation</p>
                 </div>
-              </div>
-
-              {/* TOP SELLING DISHES RANKING */}
-              <div className="space-y-3 pt-2">
-                <h4 className="font-bold text-sm">{t('topSellingDishes', currentLang)}</h4>
-                {topSellingDishes.length > 0 ? (
-                  <div className="space-y-2">
-                    {topSellingDishes.map((dish, idx) => (
-                      <div key={dish.name} className={`p-3 rounded-xl flex items-center justify-between border text-xs ${
-                        theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
-                      }`}>
-                        <div className="flex items-center gap-3">
-                          <span className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center text-xs">
-                            #{idx + 1}
-                          </span>
-                          <span className="font-bold">{dish.name}</span>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <span className="text-slate-400">{dish.qty} items sold</span>
-                          <span className="font-extrabold text-emerald-400">₹{dish.total}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 py-3 text-center">Place orders to generate live sales ranking metrics!</p>
-                )}
               </div>
             </div>
-
-            {/* SHOPKEEPER FOOD MENU MANAGEMENT WITH SPECIAL TOGGLE & AUTO IMAGE */}
-            {currentUser.role === 'shopkeeper' && (
-              <div className={`p-6 rounded-3xl border space-y-4 ${
-                theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
-              }`}>
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <div>
-                    <h3 className="font-extrabold font-heading text-base">{t('foodMenuManagement', currentLang)}</h3>
-                    <p className="text-xs text-slate-400">Mark "Today's Special" or edit dishes</p>
-                  </div>
-
-                  <button 
-                    onClick={openAddItemModal}
-                    className="bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>{t('addNewItem', currentLang)}</span>
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {menuItems.filter(i => i.shopId === activeShopForOwner.id).map(item => (
-                    <div key={item.id} className={`p-4 rounded-2xl flex justify-between gap-3 border transition ${
-                      item.isSpecial ? 'border-amber-400/80 shadow-md shadow-amber-400/10' :
-                      theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
-                    }`}>
-                      <div className="flex gap-3">
-                        <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className="w-16 h-16 rounded-xl object-cover" />
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-xs">{item.name}</h4>
-                            {item.isSpecial && (
-                              <span className="bg-amber-400/20 text-amber-300 border border-amber-400/40 text-[9px] font-extrabold px-1.5 py-0.5 rounded">
-                                🌟 Special
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs font-extrabold text-blue-400">₹{item.price}</p>
-                          <p className="text-[10px] text-slate-400">Slot: {item.availableFrom || '08:00'} - {item.availableUntil || '22:00'}</p>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col justify-between items-end">
-                        {/* FEATURE 4: TOGGLE TODAY'S SPECIAL BUTTON */}
-                        <button 
-                          onClick={() => handleToggleSpecial(item.id)}
-                          className={`p-1.5 rounded-lg border text-[10px] font-bold transition flex items-center gap-1 ${
-                            item.isSpecial 
-                              ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md' 
-                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                          }`}
-                          title="Toggle Today's Special Flag"
-                        >
-                          <Star className={`w-3 h-3 ${item.isSpecial ? 'fill-slate-950' : ''}`} />
-                          <span>{item.isSpecial ? 'Special' : 'Mark Special'}</span>
-                        </button>
-
-                        <div className="flex items-center gap-1 pt-2">
-                          <button 
-                            onClick={() => openEditItemModal(item)}
-                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteItem(item.id)}
-                            className="p-1.5 bg-red-950/60 hover:bg-red-900 text-red-400 rounded-lg transition"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
           </div>
         )}
 
       </main>
 
-      {/* FEATURE 2: VERCEL APP LINK SHARING & QR CODE MODAL */}
+      {/* CREATE DISCOUNT OFFER MODAL */}
+      {isDiscountModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
+          <div className="w-full max-w-md glass-panel border border-emerald-500/40 p-6 rounded-3xl space-y-4 shadow-2xl relative text-white">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="font-extrabold font-heading text-lg">Create Shop Discount Offer</h3>
+              <button onClick={() => setIsDiscountModalOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+
+            <form onSubmit={handleSaveDiscount} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300">Discount Coupon Code</label>
+                <input 
+                  type="text" 
+                  required
+                  value={discountForm.code}
+                  onChange={(e) => setDiscountForm({ ...discountForm, code: e.target.value })}
+                  placeholder="e.g. SUMMER20"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 font-mono uppercase"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300">Offer Title</label>
+                <input 
+                  type="text" 
+                  required
+                  value={discountForm.title}
+                  onChange={(e) => setDiscountForm({ ...discountForm, title: e.target.value })}
+                  placeholder="e.g. 20% Off South Indian Dishes"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-300">Type</label>
+                  <select 
+                    value={discountForm.type}
+                    onChange={(e) => setDiscountForm({ ...discountForm, type: e.target.value as any })}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200"
+                  >
+                    <option value="percentage">Percentage (%) Off</option>
+                    <option value="flat">Flat Amount (₹) Off</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-300">Value ({discountForm.type === 'percentage' ? '%' : '₹'})</label>
+                  <input 
+                    type="number" 
+                    required
+                    value={discountForm.value}
+                    onChange={(e) => setDiscountForm({ ...discountForm, value: Number(e.target.value) })}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200"
+                  />
+                </div>
+              </div>
+
+              <button 
+                type="submit"
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3 rounded-xl text-xs transition shadow-lg"
+              >
+                Save & Activate Discount Offer
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* VERCEL APP LINK SHARING MODAL */}
       {isVercelModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className={`w-full max-w-md p-6 rounded-3xl space-y-5 shadow-2xl relative border ${
-            theme === 'dark' ? 'glass-panel border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+          <div className="w-full max-w-md glass-panel border border-slate-800 p-6 rounded-3xl space-y-5 shadow-2xl relative text-white">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Share2 className="w-5 h-5 text-blue-500" />
@@ -1459,9 +1757,7 @@ export default function WebApp() {
       {/* FOOD ITEM ADD / EDIT MODAL */}
       {isItemModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className={`w-full max-w-lg p-6 rounded-3xl space-y-4 shadow-2xl relative border max-h-[90vh] overflow-y-auto ${
-            theme === 'dark' ? 'glass-panel border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
-          }`}>
+          <div className="w-full max-w-lg glass-panel border border-slate-800 p-6 rounded-3xl space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto text-white">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-extrabold font-heading text-lg">
                 {editingItem ? 'Edit Food Item' : 'Add New Food Item'}
@@ -1478,9 +1774,7 @@ export default function WebApp() {
                   value={itemForm.name}
                   onChange={(e) => setItemForm({ ...itemForm, name: e.target.value })}
                   placeholder="e.g. Masala Dosa"
-                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-blue-500 ${
-                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                  }`}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
@@ -1492,9 +1786,7 @@ export default function WebApp() {
                     required
                     value={itemForm.price}
                     onChange={(e) => setItemForm({ ...itemForm, price: Number(e.target.value) })}
-                    className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-blue-500 ${
-                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
                   />
                 </div>
 
@@ -1503,9 +1795,7 @@ export default function WebApp() {
                   <select 
                     value={itemForm.category}
                     onChange={(e) => setItemForm({ ...itemForm, category: e.target.value })}
-                    className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-blue-500 ${
-                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
                   >
                     <option value="South Indian">South Indian</option>
                     <option value="Fast Food">Fast Food</option>
@@ -1518,27 +1808,12 @@ export default function WebApp() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold">Custom Image URL (Optional - Category Default applies if blank)</label>
-                <input 
-                  type="text" 
-                  value={itemForm.image}
-                  onChange={(e) => setItemForm({ ...itemForm, image: e.target.value })}
-                  placeholder="https://images.unsplash.com/..."
-                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-blue-500 ${
-                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                  }`}
-                />
-              </div>
-
-              <div className="space-y-1">
                 <label className="text-xs font-semibold">Description</label>
                 <textarea 
                   rows={2}
                   value={itemForm.description}
                   onChange={(e) => setItemForm({ ...itemForm, description: e.target.value })}
-                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-blue-500 ${
-                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
-                  }`}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
@@ -1563,6 +1838,133 @@ export default function WebApp() {
                 Save Food Item to Database
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CART & CHECKOUT MODALS WITH DISCOUNTED PRICE BILLING */}
+      {isCartOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-md bg-slate-900 border-l border-slate-800 p-6 flex flex-col justify-between space-y-4 shadow-2xl text-white">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+                <h2 className="font-bold font-heading text-lg flex items-center gap-2">
+                  <ShoppingBag className="w-5 h-5 text-emerald-400" />
+                  <span>Cart ({totalItemsCount})</span>
+                </h2>
+                <button onClick={() => setIsCartOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+              </div>
+
+              {cart.map(item => (
+                <div key={item.id} className="glass-card p-3 rounded-xl flex items-center justify-between border border-slate-800">
+                  <div>
+                    <h4 className="font-bold text-xs text-white">{item.name}</h4>
+                    <div className="flex items-center gap-2">
+                      {item.originalPrice > item.discountedPrice && (
+                        <span className="text-[11px] text-slate-500 line-through">₹{item.originalPrice}</span>
+                      )}
+                      <span className="text-xs font-bold text-emerald-400">₹{item.discountedPrice} each</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-2 py-1 rounded-lg text-xs font-bold">
+                    <button onClick={() => updateQty(item.id, -1)}><Minus className="w-3 h-3 text-slate-400" /></button>
+                    <span className="text-white px-1">{item.qty}</span>
+                    <button onClick={() => updateQty(item.id, 1)}><Plus className="w-3 h-3 text-slate-400" /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {cart.length > 0 && (
+              <div className="space-y-3 pt-4 border-t border-slate-800">
+                <div className="flex justify-between font-bold text-sm text-white">
+                  <span>Grand Total (With Offers Applied)</span>
+                  <span className="text-emerald-400 font-extrabold">₹{cartSubtotal + 15}</span>
+                </div>
+                <button 
+                  onClick={() => setIsCheckoutOpen(true)}
+                  className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-bold py-3 rounded-xl text-sm"
+                >
+                  Pay via {currentCheckoutShop.name}'s UPI &rarr;
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* DYNAMIC CHECKOUT MODAL */}
+      {isCheckoutOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
+          <div className="w-full max-w-lg glass-panel border border-slate-800 p-6 rounded-3xl space-y-5 shadow-2xl relative text-white">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="font-extrabold font-heading text-lg">Select Payment Mode for {currentCheckoutShop.name}</h3>
+                <p className="text-xs text-slate-400">Shop UPI VPA: <span className="text-emerald-400 font-mono">{currentCheckoutShop.upiId}</span></p>
+              </div>
+              <button onClick={() => setIsCheckoutOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button 
+                onClick={() => setSelectedPaymentMethod('Online UPI')}
+                className={`p-3.5 rounded-2xl border text-left space-y-1 transition ${
+                  selectedPaymentMethod === 'Online UPI' 
+                    ? 'bg-blue-600/20 border-blue-500 text-white shadow-lg shadow-blue-500/20' 
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs">Online UPI (Server Verified)</span>
+                  <Smartphone className="w-4 h-4 text-emerald-400" />
+                </div>
+                <p className="text-[10px] text-slate-400">GPay / PhonePe / Paytm direct UPI settlement</p>
+              </button>
+
+              <button 
+                onClick={() => setSelectedPaymentMethod('Cash on Handover')}
+                className={`p-3.5 rounded-2xl border text-left space-y-1 transition ${
+                  selectedPaymentMethod === 'Cash on Handover' 
+                    ? 'bg-emerald-600/20 border-emerald-500 text-white shadow-lg shadow-emerald-500/20' 
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs">Cash on Handover</span>
+                  <DollarSign className="w-4 h-4 text-emerald-400" />
+                </div>
+                <p className="text-[10px] text-slate-400">Pay cash at counter when collecting food</p>
+              </button>
+            </div>
+
+            {selectedPaymentMethod === 'Online UPI' ? (
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-center space-y-3">
+                <span className="text-xs font-semibold text-slate-300">Scan Shop's Uploaded UPI QR Code</span>
+                <div className="w-44 h-44 bg-white p-2.5 rounded-xl mx-auto flex items-center justify-center shadow-lg border-2 border-blue-600/20">
+                  <img 
+                    src={currentCheckoutShop.qrImageUrl} 
+                    alt="Shop Payment QR" 
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400">Server verified transaction confirmation</p>
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-yellow-500/30 p-4 rounded-2xl text-center space-y-2 text-yellow-300">
+                <AlertCircle className="w-6 h-6 mx-auto text-yellow-400" />
+                <h4 className="font-bold text-xs">Cash on Handover Selected</h4>
+                <p className="text-[11px] text-slate-400">
+                  Your order payment status will show <span className="text-red-400 font-bold">UNPAID</span> until you pay ₹{cartSubtotal + 15} cash to the shopkeeper at the counter.
+                </p>
+              </div>
+            )}
+
+            <button 
+              onClick={handlePlaceOrder}
+              className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-extrabold py-3.5 rounded-2xl text-sm shadow-xl shadow-blue-700/30"
+            >
+              Confirm Order & Pay ₹{cartSubtotal + 15} &rarr;
+            </button>
           </div>
         </div>
       )}

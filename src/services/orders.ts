@@ -1,16 +1,15 @@
 // Real-time order/receipt layer using Supabase.
-// Implements Payment Status verification & QR-based auto handover confirmation.
+// Implements Payment Status verification, Order Cancellation & QR-based auto handover confirmation.
 
 import { createClient } from '@supabase/supabase-js';
 
-// Replace with your actual Supabase URL & Public Anon Key from your Supabase Dashboard
 const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
 const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-export type OrderStatus = 'Order Confirmed' | 'Being Prepared' | 'Food Ready' | 'Completed';
-export type PaymentStatus = 'Paid' | 'Unpaid' | 'Pending';
+export type OrderStatus = 'Pending' | 'Accepted' | 'Food Ready' | 'Completed' | 'Cancelled';
+export type PaymentStatus = 'Paid' | 'Unpaid' | 'Pending' | 'Refund Pending' | 'Refunded';
 export type PaymentMethod = 'Online UPI' | 'Cash on Handover';
 
 export interface OrderDoc {
@@ -29,16 +28,16 @@ export interface OrderDoc {
   qrToken: string;
   handedOverAt?: number;
   handedOverBy?: string;
+  cancelledBy?: 'customer' | 'shopkeeper';
+  cancelledAt?: number;
+  cancellationReason?: string;
   createdAt: number;
   updatedAt: number;
 }
 
 const ORDERS = 'orders';
 
-/**
- * Subscribes to a single order document via Supabase Realtime.
- * Fires the callback instantly on every status change.
- */
+/** Subscribes to a single order document via Supabase Realtime. */
 export function subscribeToOrder(orderId: string, onChange: (order: OrderDoc | null) => void) {
   const channel = supabase
     .channel(`order-${orderId}`)
@@ -68,7 +67,7 @@ export function subscribeToShopOrders(shopId: string, onChange: (orders: OrderDo
           .from(ORDERS)
           .select('*')
           .eq('shopId', shopId)
-          .in('status', ['Order Confirmed', 'Being Prepared', 'Food Ready']);
+          .in('status', ['Pending', 'Accepted', 'Food Ready']);
         onChange((data as OrderDoc[]) || []);
       }
     )
@@ -86,15 +85,13 @@ interface CreateOrderInput {
   paymentMethod: PaymentMethod;
   isOnlineVerified?: boolean;
   transactionId?: string;
+  appliedDiscount?: any;
 }
 
 export async function createOrder(input: CreateOrderInput): Promise<{orderId: string; qrToken: string; paymentStatus: PaymentStatus; transactionId?: string}> {
   const orderId = `HUNGER-${Math.floor(1000 + Math.random() * 9000)}`;
   const qrToken = `HUNGER-QR-${orderId}-${Date.now()}`;
   
-  // Payment Status Logic:
-  // If payment method is Online UPI and server verification succeeds -> 'Paid'
-  // If payment method is Cash on Handover -> 'Unpaid' until cash collected
   const isOnline = input.paymentMethod === 'Online UPI';
   const paymentStatus: PaymentStatus = isOnline ? (input.isOnlineVerified ? 'Paid' : 'Pending') : 'Unpaid';
   const transactionId = isOnline ? (input.transactionId || `UPI-TXN-${Math.floor(1000000000 + Math.random() * 9000000000)}`) : undefined;
@@ -109,14 +106,69 @@ export async function createOrder(input: CreateOrderInput): Promise<{orderId: st
     paymentStatus,
     transactionId,
     paidAt,
-    status: 'Order Confirmed' as OrderStatus,
+    status: 'Pending' as OrderStatus,
     foodCollected: false,
     qrToken,
+    appliedDiscount: input.appliedDiscount || null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }]);
 
   return { orderId, qrToken, paymentStatus, transactionId };
+}
+
+/** Shopkeeper action: Accept Order (Locks order, moves status from Pending -> Accepted) */
+export async function acceptOrder(orderId: string) {
+  await supabase
+    .from(ORDERS)
+    .update({
+      status: 'Accepted' as OrderStatus,
+      updatedAt: Date.now(),
+    })
+    .eq('orderId', orderId);
+}
+
+/** Customer / Shopkeeper action: Cancel Order (Only valid while status === 'Pending') */
+export async function cancelOrder(
+  orderId: string, 
+  cancelledBy: 'customer' | 'shopkeeper', 
+  reason: string = 'User requested cancellation'
+): Promise<{ success: boolean; message: string; refundStatus?: PaymentStatus }> {
+  try {
+    const { data: existing } = await supabase.from(ORDERS).select('*').eq('orderId', orderId).single();
+    if (!existing) {
+      return { success: false, message: 'Order not found.' };
+    }
+
+    if (existing.status !== 'Pending') {
+      return { success: false, message: `Cannot cancel: Order is already '${existing.status}'!` };
+    }
+
+    let nextPaymentStatus = existing.paymentStatus;
+    if (existing.paymentStatus === 'Paid') {
+      nextPaymentStatus = 'Refund Pending';
+    }
+
+    await supabase
+      .from(ORDERS)
+      .update({
+        status: 'Cancelled' as OrderStatus,
+        paymentStatus: nextPaymentStatus,
+        cancelledBy,
+        cancelledAt: Date.now(),
+        cancellationReason: reason,
+        updatedAt: Date.now(),
+      })
+      .eq('orderId', orderId);
+
+    return { 
+      success: true, 
+      message: `Order #${orderId} has been cancelled successfully.`, 
+      refundStatus: nextPaymentStatus 
+    };
+  } catch (err: any) {
+    return { success: false, message: `Cancellation error: ${err.message || 'Failed'}` };
+  }
 }
 
 /** Shop owner action: "Food Ready" button. */
@@ -153,10 +205,7 @@ export interface QrHandoverResult {
   isUnpaidWarning?: boolean;
 }
 
-/**
- * QR-BASED AUTO HANDOVER CONFIRMATION & PAYMENT STATUS CHECK
- * Scans, verifies payment status, and confirms food handover.
- */
+/** QR-BASED AUTO HANDOVER CONFIRMATION & PAYMENT STATUS CHECK */
 export async function verifyAndProcessQrHandover(
   qrPayload: string,
   authenticatedShopId: string,
@@ -201,6 +250,15 @@ export async function verifyAndProcessQrHandover(
       };
     }
 
+    if (typedOrder.status === 'Cancelled') {
+      return {
+        success: false,
+        message: `Order #${targetOrderId} was CANCELLED by ${typedOrder.cancelledBy || 'user'}. Handover blocked.`,
+        paymentStatus: typedOrder.paymentStatus,
+        paymentMethod: typedOrder.paymentMethod
+      };
+    }
+
     if (typedOrder.status !== 'Food Ready') {
       return { 
         success: false, 
@@ -211,7 +269,6 @@ export async function verifyAndProcessQrHandover(
       };
     }
 
-    // SAFEGUARD: If paymentStatus is 'Unpaid' or 'Pending', warn shopkeeper!
     if (typedOrder.paymentStatus !== 'Paid') {
       return {
         success: false,
@@ -224,7 +281,6 @@ export async function verifyAndProcessQrHandover(
       };
     }
 
-    // Execute automatic handover
     await supabase
       .from(ORDERS)
       .update({
