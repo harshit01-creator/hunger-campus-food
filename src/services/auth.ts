@@ -68,6 +68,9 @@ export async function authenticateUser(
   expectedLoginTab: 'customer' | 'shopkeeper'
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
 
+  console.log('[Auth Debug] Received raw email:', emailInput ? '[PROVIDED]' : '[EMPTY]');
+  console.log('[Auth Debug] Target Admin Email Check:', emailInput === SUPER_ADMIN_EMAIL);
+
   if (!emailInput || !passwordInput) {
     return { success: false, message: 'Please enter both email and password.' };
   }
@@ -178,7 +181,7 @@ export async function registerCustomer(
   return { success: true, user: newUser };
 }
 
-/** Super Admin Action: Register new Shopkeeper (Creates UNLIMITED shopkeeper accounts tagged role = 'shopkeeper') */
+/** Super Admin Action: Register or Link Shopkeeper Account */
 export async function createShopkeeperAccount(
   name: string,
   email: string,
@@ -186,12 +189,18 @@ export async function createShopkeeperAccount(
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
   const normalizedEmail = email.trim().toLowerCase();
 
-  // Check if email already registered as customer
   const existing = usersStore.find(u => u.email.toLowerCase() === normalizedEmail);
   if (existing) {
     if (existing.role === 'customer') {
-      return { success: false, message: `Email "${normalizedEmail}" is already registered as a Customer account. Please use a unique shopkeeper email.` };
+      return { 
+        success: false, 
+        message: `Email "${normalizedEmail}" is already registered as a Customer account. Please use a unique shopkeeper email.` 
+      };
     }
+    // Existing shopkeeper account -> Link to new shop ID
+    existing.shopId = shopId;
+    if (name) existing.name = name;
+    return { success: true, user: existing };
   }
 
   const newShopkeeper: UserAccount = {

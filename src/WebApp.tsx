@@ -217,7 +217,7 @@ export default function WebApp() {
   const [isAddShopkeeperOpen, setIsAddShopkeeperOpen] = useState(false);
   const [newShopkeeperName, setNewShopkeeperName] = useState('');
   const [newShopkeeperEmail, setNewShopkeeperEmail] = useState('');
-  const [newShopkeeperShopId, setNewShopkeeperShopId] = useState('shop-new');
+  const [newShopkeeperShopId, setNewShopkeeperShopId] = useState(() => `shop-${Date.now()}`);
   const [newShopName, setNewShopName] = useState('');
 
   // Camera QR Scanner State
@@ -650,27 +650,38 @@ export default function WebApp() {
   const handleAddShopkeeper = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await createShopkeeperAccount(newShopkeeperName, newShopkeeperEmail, newShopkeeperShopId);
+      if (!newShopkeeperEmail || !newShopName) {
+        alert('⚠️ Please fill in all required fields (Shopkeeper Email & Canteen Shop Name).');
+        return;
+      }
+
+      // Generate unique targetShopId if empty or default 'shop-new' to prevent ID collisions
+      const targetShopId = (newShopkeeperShopId.trim() && newShopkeeperShopId.trim() !== 'shop-new')
+        ? newShopkeeperShopId.trim()
+        : `shop-${Date.now()}`;
+
+      const res = await createShopkeeperAccount(newShopkeeperName, newShopkeeperEmail, targetShopId);
       
       if (res.success) {
-        const createdShopName = newShopName.trim() || `Canteen ${newShopkeeperName}`;
+        const createdShopName = newShopName.trim();
         const newShopObj: ShopAccount = {
-          id: newShopkeeperShopId,
+          id: targetShopId,
           name: createdShopName,
-          email: newShopkeeperEmail,
-          upiId: `${newShopkeeperShopId.replace(/[^a-zA-Z0-9]/g, '')}@okaxis`,
-          qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=${newShopkeeperShopId}@okaxis&pn=${encodeURIComponent(createdShopName)}`,
+          email: newShopkeeperEmail.trim().toLowerCase(),
+          upiId: `${targetShopId.replace(/[^a-zA-Z0-9]/g, '')}@okaxis`,
+          qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=${targetShopId}@okaxis&pn=${encodeURIComponent(createdShopName)}`,
           rating: 5.0
         };
 
         const updatedShops = await addOrUpdateShopAccount(newShopObj);
         setShops(updatedShops);
 
-        alert(`🎉 Success: Shopkeeper account & Canteen "${createdShopName}" saved to database!`);
+        alert(`🎉 Success: Canteen Shop "${createdShopName}" and Shopkeeper account (${newShopkeeperEmail}) saved to database!`);
         setIsAddShopkeeperOpen(false);
         setNewShopkeeperName('');
         setNewShopkeeperEmail('');
         setNewShopName('');
+        setNewShopkeeperShopId(`shop-${Date.now()}`);
       } else {
         alert(`❌ Error: ${res.message || 'Failed to create shopkeeper account.'}`);
       }
