@@ -252,13 +252,18 @@ export default function WebApp() {
 
   const currentCheckoutShop = cart.length > 0 ? shops.find(s => s.id === cart[0].shopId) || shops[0] : shops[0];
 
-  // AUTH SUBMISSION
+  // AUTH SUBMISSION WITH SUPER ADMIN REDIRECT
   const handleAuthSubmit = async (e?: React.FormEvent, directEmail?: string, directPassword?: string, directShopId?: string) => {
     if (e) e.preventDefault();
     setAuthError(null);
 
-    const targetEmail = directEmail || authEmail;
+    const targetEmail = (directEmail || authEmail || '').trim().toLowerCase();
     const targetPassword = directPassword || authPassword;
+
+    if (!targetEmail || !targetPassword) {
+      setAuthError('Please enter both email address and password.');
+      return;
+    }
 
     const res = await authenticateUser(targetEmail, targetPassword, authTab);
     if (res.success && res.user) {
@@ -268,6 +273,7 @@ export default function WebApp() {
       };
       setCurrentUser(finalUser);
 
+      // REDIRECT ROUTING LOGIC
       if (finalUser.role === 'super_admin') {
         setActiveTab('admin');
       } else if (finalUser.role === 'shopkeeper' || authTab === 'shopkeeper') {
@@ -536,6 +542,7 @@ export default function WebApp() {
       const itemToSave: FoodItem = editingItem ? {
         ...editingItem,
         ...itemForm,
+        id: editingItem.id, // Explicitly preserve existing ID when editing!
         shopId: activeShop.id,
         shopName: activeShop.name
       } : {
@@ -1420,7 +1427,7 @@ export default function WebApp() {
               )}
             </div>
 
-            {/* SECTION C: FOOD MENU MANAGEMENT (ADD & DELETE FOOD ITEMS) */}
+            {/* SECTION C: FOOD MENU MANAGEMENT (ADD & EDIT FOOD ITEMS) */}
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div>

