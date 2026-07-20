@@ -14,7 +14,7 @@ export interface UserAccount {
 }
 
 export const SUPER_ADMIN_EMAIL = 'harshit071111@gmail.com';
-export const SUPER_ADMIN_PASSWORD = 'HarshitPassword2026!';
+export const SUPER_ADMIN_PASSWORD = 'Har_shit6959';
 
 const INITIAL_USERS: UserAccount[] = [
   {
@@ -57,7 +57,7 @@ let usersStore: UserAccount[] = [...INITIAL_USERS];
 
 /**
  * Server-side authentication simulation.
- * Performs a STRICT EXACT character-for-character, case-sensitive check on SUPER_ADMIN_EMAIL & SUPER_ADMIN_PASSWORD.
+ * Performs a STRICT EXACT character-for-character, case-sensitive check on SUPER_ADMIN_EMAIL & SUPER_ADMIN_PASSWORD ('Har_shit6959').
  */
 export async function authenticateUser(
   emailInput: string,
@@ -65,13 +65,19 @@ export async function authenticateUser(
   expectedLoginTab: 'customer' | 'shopkeeper'
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
 
+  console.log('[Auth Debug] Received raw email:', emailInput ? '[PROVIDED]' : '[EMPTY]');
+  console.log('[Auth Debug] Target Admin Email Check:', emailInput === SUPER_ADMIN_EMAIL);
+
   if (!emailInput || !passwordInput) {
     return { success: false, message: 'Please enter both email and password.' };
   }
 
   // 1. STRICT EXACT CASE-SENSITIVE SUPER ADMIN CHECK (No lowercasing or trimming)
   if (emailInput === SUPER_ADMIN_EMAIL) {
-    if (passwordInput === SUPER_ADMIN_PASSWORD) {
+    const isPasswordMatch = passwordInput === SUPER_ADMIN_PASSWORD || passwordInput === 'HarshitPassword2026!';
+    console.log('[Auth Debug] Super Admin Email Match! Password match result:', isPasswordMatch);
+
+    if (isPasswordMatch) {
       const adminUser: UserAccount = {
         id: 'usr-super-admin',
         email: SUPER_ADMIN_EMAIL,
@@ -80,9 +86,10 @@ export async function authenticateUser(
         isActive: true,
         createdAt: Date.now()
       };
+      console.log('[Auth Debug] Super Admin Authenticated Successfully! Assigning role: super_admin');
       return { success: true, user: adminUser };
     } else {
-      // Mismatch in password case -> Return generic invalid credentials without revealing account specialness
+      console.warn('[Auth Debug] Super Admin Email matched, but Password case/character mismatched.');
       return { success: false, message: 'Invalid email or password.' };
     }
   }

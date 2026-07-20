@@ -114,6 +114,10 @@ export default function WebApp() {
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
 
+  // 8-Second Cancellation Confirmation Window State
+  const [cancelCountdown, setCancelCountdown] = useState<number | null>(null);
+  const cancelTimerRef = useRef<any>(null);
+
   // Discount Offer Manager Modal State
   const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
   const [discountForm, setDiscountForm] = useState<{
@@ -275,6 +279,9 @@ export default function WebApp() {
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach(track => track.stop());
       }
+      if (cancelTimerRef.current) {
+        clearInterval(cancelTimerRef.current);
+      }
     };
   }, []);
 
@@ -357,6 +364,8 @@ export default function WebApp() {
 
   const handleLogout = () => {
     stopCameraScanner();
+    if (cancelTimerRef.current) clearInterval(cancelTimerRef.current);
+    setCancelCountdown(null);
     setCurrentUser(null);
     setActiveTab('home');
   };
@@ -414,33 +423,61 @@ export default function WebApp() {
     });
   };
 
-  // ORDER CANCELLATION (BEFORE ORDER IS ACCEPTED)
-  const handleCustomerCancelOrder = async (orderIdToCancel: string) => {
+  // ISSUE 2 FIX: ORDER CANCELLATION WITH AN 8-SECOND CONFIRMATION WINDOW
+  const startCancelWindow = (orderIdToCancel: string) => {
     if (!currentOrder || currentOrder.id !== orderIdToCancel) return;
-
     if (currentOrder.status !== 'Pending') {
-      alert(`⚠️ Cannot cancel order #${orderIdToCancel}: The shopkeeper has already accepted and started preparing your order!`);
+      alert(`⚠️ Cannot cancel order #${orderIdToCancel}: The shopkeeper has already accepted your order!`);
       return;
     }
 
-    if (confirm(`Are you sure you want to cancel Order #${orderIdToCancel}?`)) {
-      const apiRes = await cancelOrderApi(orderIdToCancel, 'customer', 'Customer cancelled before acceptance');
-      if (apiRes.success) {
-        const updated: Order = {
-          ...currentOrder,
-          status: 'Cancelled',
-          paymentStatus: apiRes.refundStatus || currentOrder.paymentStatus,
-          cancelledBy: 'customer',
-          cancelledAt: new Date().toLocaleTimeString(),
-          cancellationReason: 'Customer cancelled before acceptance'
-        };
-        setCurrentOrder(updated);
-        setOrdersHistory(prev => prev.map(o => o.id === orderIdToCancel ? updated : o));
-        alert(`✅ Order #${orderIdToCancel} has been cancelled.${apiRes.refundStatus === 'Refund Pending' ? ' Refund marked for processing.' : ''}`);
-      } else {
-        alert(`❌ Cancellation failed: ${apiRes.message}`);
-      }
+    if (cancelTimerRef.current) clearInterval(cancelTimerRef.current);
+    setCancelCountdown(8);
+
+    cancelTimerRef.current = setInterval(() => {
+      setCancelCountdown(prev => {
+        if (prev === null || prev <= 1) {
+          clearInterval(cancelTimerRef.current);
+          cancelTimerRef.current = null;
+          return null; // 8s window expired -> dismiss cancel prompt, order remains active untouched!
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const confirmCancelOrder = async (orderIdToCancel: string) => {
+    if (cancelTimerRef.current) {
+      clearInterval(cancelTimerRef.current);
+      cancelTimerRef.current = null;
     }
+    setCancelCountdown(null);
+
+    // Re-verify current order status server-side at confirmation time
+    const apiRes = await cancelOrderApi(orderIdToCancel, 'customer', 'Customer confirmed cancellation within 8s window');
+    if (apiRes.success) {
+      const updated: Order = {
+        ...currentOrder!,
+        status: 'Cancelled',
+        paymentStatus: apiRes.refundStatus || currentOrder!.paymentStatus,
+        cancelledBy: 'customer',
+        cancelledAt: new Date().toLocaleTimeString(),
+        cancellationReason: 'Customer confirmed cancellation within 8s window'
+      };
+      setCurrentOrder(updated);
+      setOrdersHistory(prev => prev.map(o => o.id === orderIdToCancel ? updated : o));
+      alert(`✅ Order #${orderIdToCancel} has been cancelled.${apiRes.refundStatus === 'Refund Pending' ? ' Refund marked for processing.' : ''}`);
+    } else {
+      alert(`❌ Cancellation failed: ${apiRes.message}`);
+    }
+  };
+
+  const dismissCancelWindow = () => {
+    if (cancelTimerRef.current) {
+      clearInterval(cancelTimerRef.current);
+      cancelTimerRef.current = null;
+    }
+    setCancelCountdown(null);
   };
 
   // SHOPKEEPER ACCEPT ORDER ACTION
@@ -1457,7 +1494,7 @@ export default function WebApp() {
           </div>
         )}
 
-        {/* CUSTOMER DASHBOARD: LIVE ORDER TRACKING & READY FOR PICKUP STATUS */}
+        {/* CUSTOMER DASHBOARD: LIVE ORDER TRACKING & 8-SECOND CANCEL CONFIRMATION WINDOW */}
         {currentUser.role === 'customer' && activeTab === 'tracking' && currentOrder && (
           <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
             <div className={`p-6 rounded-3xl border text-center space-y-3 relative overflow-hidden ${
@@ -1504,15 +1541,40 @@ export default function WebApp() {
                   : 'Kitchen is preparing your meal.'}
               </p>
 
+              {/* ISSUE 2 FIX: 8-SECOND CONFIRMATION WINDOW UI */}
               {currentOrder.status === 'Pending' && (
-                <div className="pt-2">
-                  <button 
-                    onClick={() => handleCustomerCancelOrder(currentOrder.id)}
-                    className="bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold px-5 py-2.5 rounded-2xl text-xs transition shadow-lg flex items-center gap-2 mx-auto active:scale-95"
-                  >
-                    <Ban className="w-4 h-4 text-red-400" />
-                    <span>Cancel Order #{currentOrder.id} (Before Accepted) 🚫</span>
-                  </button>
+                <div className="pt-2 space-y-2">
+                  {cancelCountdown !== null ? (
+                    <div className="bg-red-950/90 border border-red-500 p-4 rounded-2xl space-y-3 text-center">
+                      <div className="flex items-center justify-center gap-2 text-red-300 font-extrabold text-xs">
+                        <Clock className="w-4 h-4 text-red-400 animate-spin-slow" />
+                        <span>Cancelling in {cancelCountdown}s — Tap to Confirm Cancellation!</span>
+                      </div>
+                      <div className="flex items-center justify-center gap-3">
+                        <button 
+                          onClick={() => confirmCancelOrder(currentOrder.id)}
+                          className="bg-red-600 hover:bg-red-500 text-white font-extrabold px-5 py-2.5 rounded-xl text-xs shadow-lg flex items-center gap-1.5 active:scale-95"
+                        >
+                          <Ban className="w-4 h-4" />
+                          <span>Confirm Cancel Now ({cancelCountdown}s) 🚫</span>
+                        </button>
+                        <button 
+                          onClick={dismissCancelWindow}
+                          className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-4 py-2.5 rounded-xl text-xs"
+                        >
+                          Keep Order Active
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button 
+                      onClick={() => startCancelWindow(currentOrder.id)}
+                      className="bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold px-5 py-2.5 rounded-2xl text-xs transition shadow-lg flex items-center gap-2 mx-auto active:scale-95"
+                    >
+                      <Ban className="w-4 h-4 text-red-400" />
+                      <span>Cancel Order #{currentOrder.id} (8s Confirmation Window) 🚫</span>
+                    </button>
+                  )}
                 </div>
               )}
 
