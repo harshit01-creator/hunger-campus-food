@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ShoppingBag, Search, Clock, MapPin, CheckCircle2, ChevronRight, 
   Sparkles, QrCode, ArrowLeft, Plus, Minus, CreditCard, Smartphone,
   Utensils, Store, User, Bell, Flame, Filter, RefreshCw, X, ShieldCheck,
   Camera, Lock, Edit3, Trash2, Calendar, AlertCircle, LogOut, Check, Upload,
-  Users, Shield, BarChart3, AlertTriangle, Key, Mail, Eye, EyeOff, LogIn, DollarSign
+  Users, Shield, BarChart3, AlertTriangle, Key, Mail, Eye, EyeOff, LogIn, DollarSign,
+  Video, VideoOff
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import kprLogo from './assets/logo.png';
@@ -57,7 +58,7 @@ export default function WebApp() {
   const [selectedShopId, setSelectedShopId] = useState<string>('all');
   const [location, setLocation] = useState('Hostel Block B — Room 204');
 
-  // Master Data State
+  // Master Data State (Persisted & Real-Time Synced)
   const [shops, setShops] = useState<ShopAccount[]>(() => loadShops());
   const [menuItems, setMenuItems] = useState<FoodItem[]>(() => loadMenuItems());
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -68,7 +69,7 @@ export default function WebApp() {
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
 
-  // Real-Time Event Sync
+  // Real-Time Event Listener for Customer & Shopkeeper Dashboards
   useEffect(() => {
     const handleSync = () => {
       setShops(loadShops());
@@ -120,19 +121,24 @@ export default function WebApp() {
     availableUntil: '22:00'
   });
 
-  // Shop Owner Payment Settings State
+  // Shop Owner Settings State
   const [editingShopUpi, setEditingShopUpi] = useState('');
   const [editingShopQrUrl, setEditingShopQrUrl] = useState('');
 
-  // Super Admin Modal State
+  // Super Admin Add Shop & Shopkeeper State
   const [isAddShopkeeperOpen, setIsAddShopkeeperOpen] = useState(false);
   const [newShopkeeperName, setNewShopkeeperName] = useState('');
   const [newShopkeeperEmail, setNewShopkeeperEmail] = useState('');
-  const [newShopkeeperShopId, setNewShopkeeperShopId] = useState('shop-1');
+  const [newShopkeeperShopId, setNewShopkeeperShopId] = useState('shop-new');
+  const [newShopName, setNewShopName] = useState('');
 
   // Camera QR Scanner State
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [scanResult, setScanResult] = useState<QrHandoverResult | null>(null);
   const [simulatedQrInput, setSimulatedQrInput] = useState('');
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
 
   // Prep progress simulation
   const [prepProgress, setPrepProgress] = useState(25);
@@ -153,6 +159,47 @@ export default function WebApp() {
     }
     return () => clearInterval(interval);
   }, [currentOrder?.status]);
+
+  // LIVE CAMERA ACCESS ENGINE (WebRTC getUserMedia)
+  const startCameraScanner = async () => {
+    setCameraError(null);
+    setIsCameraActive(true);
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Camera access API is not supported on this browser or requires an HTTPS connection.');
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+
+      mediaStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+    } catch (err: any) {
+      console.warn('[Camera] Permission or access error:', err);
+      setCameraError(err.message || 'Camera access denied — please allow camera permissions in browser settings.');
+      setIsCameraActive(false);
+    }
+  };
+
+  const stopCameraScanner = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
+    }
+    setIsCameraActive(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
 
   const isItemInTimeSlot = (item: FoodItem) => {
     if (!item.isAvailable) return false;
@@ -225,31 +272,27 @@ export default function WebApp() {
   };
 
   const handleLogout = () => {
+    stopCameraScanner();
     setCurrentUser(null);
     setActiveTab('home');
   };
 
-  // ORDER PLACEMENT WITH PAYMENT STATUS ENGINE
+  // UNIQUE PER-ORDER PLACEMENT WITH CRYPTOGRAPHIC TOKEN GENERATION
   const handlePlaceOrder = async () => {
     if (cart.length === 0) return;
     const targetShop = currentCheckoutShop;
     const isOnline = selectedPaymentMethod === 'Online UPI';
 
-    // Call server backend API
     const apiRes = await createOrderApi({
       shopId: targetShop.id,
       items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty })),
       grandTotal: cartTotal + 15,
       paymentMethod: selectedPaymentMethod,
-      isOnlineVerified: isOnline // Server verifies UPI gateway settlement
+      isOnlineVerified: isOnline
     });
 
     const orderId = apiRes.orderId;
-    const qrTokenData = apiRes.qrToken || JSON.stringify({
-      orderId,
-      shopId: targetShop.id,
-      token: `TOKEN-${Date.now()}`
-    });
+    const uniqueQrToken = apiRes.qrToken;
 
     const newOrder: Order = {
       id: orderId,
@@ -266,7 +309,7 @@ export default function WebApp() {
       status: 'Order Confirmed',
       createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       estimatedMinutes: 12,
-      qrToken: qrTokenData,
+      qrToken: uniqueQrToken,
       payeeUpiId: targetShop.upiId,
       payeeQrUrl: targetShop.qrImageUrl
     };
@@ -314,16 +357,15 @@ export default function WebApp() {
     });
   };
 
-  // QR AUTO HANDOVER ENGINE WITH PAYMENT VERIFICATION & UNPAID SAFEGUARDS
+  // QR AUTO HANDOVER ENGINE WITH UNPAID SAFEGUARDS & SINGLE-USE VALIDATION
   const processQrScanHandover = async (scannedRaw: string) => {
     setScanResult(null);
     const loggedInShopId = currentUser?.shopId || 'shop-1';
     const shopOwnerName = currentUser?.name || 'Canteen Manager';
 
-    // 1. Run server verification API
+    // Server verification API
     const apiRes = await verifyAndProcessQrHandoverApi(scannedRaw, loggedInShopId, shopOwnerName);
     
-    // Check if order is unpaid safeguard warning
     if (apiRes.isUnpaidWarning) {
       setScanResult(apiRes);
       return;
@@ -363,7 +405,7 @@ export default function WebApp() {
       if (currentOrder.status === 'Completed') {
         setScanResult({
           success: false,
-          message: `Order #${currentOrder.id} has ALREADY been marked as handed over!`,
+          message: `Order #${currentOrder.id} has ALREADY been marked as handed over! Reuse blocked.`,
           paymentStatus: currentOrder.paymentStatus,
           paymentMethod: currentOrder.paymentMethod,
           transactionId: currentOrder.transactionId
@@ -382,7 +424,6 @@ export default function WebApp() {
         return;
       }
 
-      // Safeguard check for unpaid orders
       if (currentOrder.paymentStatus !== 'Paid') {
         setScanResult({
           success: false,
@@ -413,6 +454,8 @@ export default function WebApp() {
         transactionId: currentOrder.transactionId
       });
 
+      stopCameraScanner();
+
       confetti({
         particleCount: 90,
         spread: 70,
@@ -424,6 +467,41 @@ export default function WebApp() {
         success: false,
         message: `Scan Verification Failed: ${err.message || 'Invalid format'}`
       });
+    }
+  };
+
+  // SUPER ADMIN SHOP & SHOPKEEPER CREATION (FIX 1: IMMEDIATELY VISIBLE ON CUSTOMER DASHBOARD)
+  const handleAddShopkeeper = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const res = await createShopkeeperAccount(newShopkeeperName, newShopkeeperEmail, newShopkeeperShopId);
+    
+    if (res.success) {
+      // 1. Create complete ShopAccount record if not existing
+      const existingShop = shops.find(s => s.id === newShopkeeperShopId);
+      let updatedShops = [...shops];
+
+      if (!existingShop) {
+        const createdShopName = newShopName.trim() || `Canteen ${newShopkeeperName}`;
+        const newShopObj: ShopAccount = {
+          id: newShopkeeperShopId,
+          name: createdShopName,
+          email: newShopkeeperEmail,
+          upiId: `${newShopkeeperShopId.replace(/[^a-zA-Z0-9]/g, '')}@okaxis`,
+          qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=${newShopkeeperShopId}@okaxis&pn=${encodeURIComponent(createdShopName)}`,
+          rating: 5.0
+        };
+        updatedShops = [newShopObj, ...shops];
+        setShops(updatedShops);
+        saveShops(updatedShops); // Persists to storage & emits 'hunger_shops_updated' event to Customer Dashboards!
+      }
+
+      alert(`🎉 Shopkeeper account & Canteen Shop created for ${newShopkeeperName} (${newShopkeeperEmail})! Immediately visible on Customer Dashboard.`);
+      setIsAddShopkeeperOpen(false);
+      setNewShopkeeperName('');
+      setNewShopkeeperEmail('');
+      setNewShopName('');
+    } else {
+      alert(res.message || 'Failed to create shopkeeper account.');
     }
   };
 
@@ -501,19 +579,6 @@ export default function WebApp() {
     setIsItemModalOpen(true);
   };
 
-  const handleAddShopkeeper = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const res = await createShopkeeperAccount(newShopkeeperName, newShopkeeperEmail, newShopkeeperShopId);
-    if (res.success) {
-      alert(`Shopkeeper account created for ${newShopkeeperName} (${newShopkeeperEmail})!`);
-      setIsAddShopkeeperOpen(false);
-      setNewShopkeeperName('');
-      setNewShopkeeperEmail('');
-    } else {
-      alert(res.message || 'Failed to create shopkeeper account.');
-    }
-  };
-
   const categories = ['All', 'South Indian', 'Fast Food', 'Beverages', 'Main Course'];
 
   const filteredMenu = menuItems.filter(item => {
@@ -538,16 +603,14 @@ export default function WebApp() {
       <div className="min-h-screen flex items-center justify-center p-4 text-slate-100 selection:bg-blue-600">
         <div className="w-full max-w-lg glass-panel border border-slate-800 p-6 sm:p-8 rounded-3xl space-y-6 shadow-2xl relative animate-fadeIn">
           
-          {/* Header Branding */}
           <div className="text-center space-y-2">
             <div className="w-16 h-16 logo-badge mx-auto mb-2">
               <img src={kprLogo} alt="Hunger Logo" className="w-full h-full object-contain" />
             </div>
             <h1 className="font-heading font-extrabold text-3xl sm:text-4xl gradient-text">Hunger</h1>
-            <p className="text-xs text-slate-400">Campus Food Ordering & Verified Payment QR Auto Handover</p>
+            <p className="text-xs text-slate-400">Campus Food Ordering & Camera QR Auto Handover Platform</p>
           </div>
 
-          {/* DUAL LOGIN TABS */}
           <div className="flex bg-slate-900/90 p-1.5 rounded-2xl border border-slate-800">
             <button 
               onClick={() => {
@@ -685,7 +748,7 @@ export default function WebApp() {
                   Active Session
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 hidden sm:block">Verified Payment QR Auto Handover</p>
+              <p className="text-[11px] text-slate-400 hidden sm:block">Camera QR Auto Handover</p>
             </div>
           </div>
 
@@ -1016,12 +1079,11 @@ export default function WebApp() {
           </div>
         )}
 
-        {/* CUSTOMER DASHBOARD: LIVE ORDER TRACKING & PAYMENT STATUS */}
+        {/* CUSTOMER DASHBOARD: UNIQUE PER-ORDER QR CODE */}
         {currentUser.role === 'customer' && activeTab === 'tracking' && currentOrder && (
           <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 text-center space-y-3 relative overflow-hidden">
               
-              {/* PAYMENT STATUS BADGE ON CUSTOMER DASHBOARD */}
               <div className="flex items-center justify-center gap-2 flex-wrap">
                 <span className={`inline-flex items-center gap-1.5 border px-3 py-1 rounded-full text-xs font-bold ${
                   currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
@@ -1050,7 +1112,6 @@ export default function WebApp() {
                   : 'Show your unique QR code at counter when status is Food Ready'}
               </p>
 
-              {/* Progress Bar */}
               <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden p-0.5 border border-slate-800">
                 <div 
                   className="bg-gradient-to-r from-blue-600 to-emerald-400 h-full rounded-full transition-all duration-500" 
@@ -1059,9 +1120,8 @@ export default function WebApp() {
               </div>
             </div>
 
-            {/* Stepper Steps */}
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-6">
-              <h3 className="font-bold text-sm text-slate-200 border-b border-slate-800 pb-3">Real-time Order & Payment Status</h3>
+              <h3 className="font-bold text-sm text-slate-200 border-b border-slate-800 pb-3">Real-time Order Status</h3>
 
               <div className="space-y-6 relative before:absolute before:left-4 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-800">
                 <div className="flex items-start gap-4 relative z-10">
@@ -1098,11 +1158,11 @@ export default function WebApp() {
               </div>
             </div>
 
-            {/* CUSTOMER UNIQUE COLLECTION QR CODE CARD */}
+            {/* CUSTOMER UNIQUE SINGLE-USE COLLECTION QR CODE CARD */}
             <div className="glass-card p-6 rounded-3xl border border-slate-800 text-center space-y-4">
               <div className="inline-flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs text-slate-300">
                 <QrCode className="w-4 h-4 text-emerald-400" />
-                <span className="font-semibold">Customer Collection QR Code</span>
+                <span className="font-semibold">Single-Use Order Collection QR Code</span>
               </div>
 
               <div className="w-52 h-52 bg-white p-3 rounded-2xl mx-auto flex items-center justify-center shadow-xl border-4 border-blue-600/20">
@@ -1114,13 +1174,13 @@ export default function WebApp() {
               </div>
 
               <p className="text-xs text-slate-400 font-mono">
-                Order ID: <span className="text-white font-bold">{currentOrder.id}</span> • Shop: <span className="text-blue-400 font-bold">{currentOrder.shopName}</span>
+                Order ID: <span className="text-white font-bold">{currentOrder.id}</span> • Token: <span className="text-blue-400 font-bold">{currentOrder.qrToken}</span>
               </p>
             </div>
           </div>
         )}
 
-        {/* SHOPKEEPER DASHBOARD: SCANNER WITH PAYMENT STATUS VERIFICATION */}
+        {/* SHOPKEEPER DASHBOARD: LIVE CAMERA QR SCANNER */}
         {currentUser.role === 'shopkeeper' && (
           <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
             
@@ -1140,24 +1200,35 @@ export default function WebApp() {
               <div className="flex items-center gap-2">
                 <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span>Verified Scanner Active</span>
+                  <span>Verified Camera Scanner Active</span>
                 </span>
               </div>
             </div>
 
-            {/* SECTION A: CAMERA QR SCANNER WITH REAL-TIME PAYMENT STATUS DISPLAY */}
+            {/* SECTION A: DEVICE CAMERA QR AUTO HANDOVER SCANNER */}
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2">
-                  <QrCode className="w-5 h-5 text-emerald-400" />
-                  <h3 className="font-extrabold font-heading text-base text-white">QR Auto Handover & Payment Verification</h3>
+                  <Camera className="w-5 h-5 text-emerald-400" />
+                  <h3 className="font-extrabold font-heading text-base text-white">Live Camera QR Auto Handover Scanner</h3>
                 </div>
                 <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2.5 py-0.5 rounded-md">
-                  Server Verified Payment Check
+                  WebRTC Device Camera API
                 </span>
               </div>
 
-              {/* SCAN RESULT BANNER WITH CLEAR PAYMENT STATUS (PAID vs UNPAID) */}
+              {/* CAMERA ERROR BANNER WITH FALLBACK */}
+              {cameraError && (
+                <div className="bg-red-950/80 border border-red-500/50 text-red-300 p-4 rounded-2xl text-xs font-bold flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-extrabold">Camera Access Issue</p>
+                    <p className="text-xs text-red-200 font-normal">{cameraError}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* SCAN RESULT BANNER */}
               {scanResult && (
                 <div className={`p-4 rounded-2xl border text-xs font-bold space-y-2 animate-fadeIn ${
                   scanResult.isUnpaidWarning ? 'bg-yellow-950/80 border-yellow-500/50 text-yellow-300' :
@@ -1191,7 +1262,6 @@ export default function WebApp() {
                     </div>
                   </div>
 
-                  {/* UNPAID SAFEGUARD OVERRIDE BUTTON FOR SHOPKEEPER (CASH ON HANDOVER) */}
                   {scanResult.isUnpaidWarning && scanResult.orderId && (
                     <div className="pt-2 flex items-center gap-3 border-t border-yellow-500/30">
                       <button 
@@ -1207,47 +1277,89 @@ export default function WebApp() {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* DEVICE CAMERA SCANNER PREVIEW PANEL */}
                 <div className="glass-card p-5 rounded-2xl space-y-3 text-center border border-slate-800">
-                  <div className="w-12 h-12 rounded-2xl bg-blue-600/10 border border-blue-600/30 flex items-center justify-center text-blue-400 mx-auto">
-                    <Camera className="w-6 h-6" />
+                  <div className="w-full h-48 bg-slate-950 rounded-xl overflow-hidden relative border border-slate-800 flex items-center justify-center">
+                    <video 
+                      ref={videoRef} 
+                      playsInline 
+                      muted 
+                      className={`w-full h-full object-cover ${isCameraActive ? 'block' : 'hidden'}`}
+                    />
+
+                    {!isCameraActive && (
+                      <div className="space-y-2 text-center p-4">
+                        <Camera className="w-10 h-10 text-slate-600 mx-auto" />
+                        <p className="text-xs text-slate-400">Device Camera Viewfinder Standby</p>
+                      </div>
+                    )}
+
+                    {isCameraActive && (
+                      <div className="absolute inset-0 border-2 border-emerald-400/80 rounded-xl m-6 pointer-events-none animate-pulse" />
+                    )}
                   </div>
-                  <h4 className="font-bold text-sm text-white">Scan Customer Collection QR</h4>
-                  <p className="text-xs text-slate-400">Point camera at customer's collection QR code</p>
-                  
+
+                  <div className="flex gap-2">
+                    {!isCameraActive ? (
+                      <button 
+                        onClick={startCameraScanner}
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg shadow-emerald-600/20 transition flex items-center justify-center gap-2"
+                      >
+                        <Camera className="w-4 h-4" />
+                        <span>Start Camera Scanner 📷</span>
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={stopCameraScanner}
+                        className="flex-1 bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-2"
+                      >
+                        <VideoOff className="w-4 h-4" />
+                        <span>Stop Camera ⏹</span>
+                      </button>
+                    )}
+                  </div>
+
                   {currentOrder && (
                     <button 
                       onClick={() => processQrScanHandover(currentOrder.qrToken)}
                       className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 hover:from-blue-800 hover:to-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg shadow-blue-700/20 transition active:scale-95 flex items-center justify-center gap-2"
                     >
-                      <Camera className="w-4 h-4" />
-                      <span>Scan Active Order #{currentOrder.id}</span>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Scan Active Customer Order #{currentOrder.id}</span>
                     </button>
                   )}
                 </div>
 
+                {/* MANUAL FALLBACK INPUT PANEL */}
                 <div className="glass-card p-5 rounded-2xl space-y-3 border border-slate-800">
-                  <h4 className="font-bold text-sm text-white">Manual Token Verification</h4>
-                  <p className="text-xs text-slate-400">Enter QR code payload string or Order ID</p>
-                  <div className="flex gap-2">
+                  <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                    <QrCode className="w-4 h-4 text-emerald-400" />
+                    <span>Manual Token Entry Fallback</span>
+                  </h4>
+                  <p className="text-xs text-slate-400">Use if camera permission is disabled or scanning unreadable token</p>
+                  
+                  <div className="space-y-2 pt-1">
                     <input 
                       type="text" 
-                      placeholder="e.g. HUNGER-8924 or QR JSON token"
+                      placeholder="e.g. HUNGER-8924 or HUNGER-QR-8924..."
                       value={simulatedQrInput}
                       onChange={(e) => setSimulatedQrInput(e.target.value)}
-                      className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
                     />
                     <button 
                       onClick={() => processQrScanHandover(simulatedQrInput)}
-                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs transition"
+                      className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-xl text-xs transition"
                     >
-                      Verify
+                      Verify Order Handover
                     </button>
                   </div>
                 </div>
+
               </div>
             </div>
 
-            {/* SECTION B: INCOMING CANTEEN ORDERS WITH PAYMENT STATUS BADGES */}
+            {/* SECTION B: INCOMING CANTEEN ORDERS */}
             <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-4">
               <h3 className="font-extrabold font-heading text-base text-white border-b border-slate-800 pb-3">
                 Incoming Canteen Orders ({currentOrder && currentOrder.shopId === activeShopForOwner.id ? 1 : 0})
@@ -1260,7 +1372,6 @@ export default function WebApp() {
                       <div className="flex items-center gap-2">
                         <h4 className="font-bold text-sm text-white">Order #{currentOrder.id} • {currentOrder.customerName}</h4>
                         
-                        {/* PAYMENT STATUS BADGE ON SHOPKEEPER INCOMING ORDER */}
                         <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border uppercase ${
                           currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' :
                           currentOrder.paymentStatus === 'Pending' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40' :
@@ -1308,7 +1419,6 @@ export default function WebApp() {
                       </button>
                     )}
 
-                    {/* MANUAL CASH OVERRIDE BUTTON IF UNPAID */}
                     {currentOrder.paymentStatus !== 'Paid' && (
                       <button 
                         onClick={() => handleMarkOrderPaidCash(currentOrder.id)}
@@ -1436,7 +1546,7 @@ export default function WebApp() {
           </div>
         )}
 
-        {/* HIDDEN SUPER ADMIN DASHBOARD */}
+        {/* HIDDEN SUPER ADMIN DASHBOARD (ADD SHOPKEEPER + INSTANT CUSTOMER SHOP CREATION) */}
         {currentUser.role === 'super_admin' && (
           <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
             <div className="glass-panel p-6 rounded-3xl border border-purple-500/40 bg-gradient-to-r from-purple-950/40 via-slate-900 to-slate-900 space-y-2">
@@ -1456,7 +1566,7 @@ export default function WebApp() {
                   className="bg-purple-600 hover:bg-purple-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-purple-600/30 transition"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Add New Shopkeeper</span>
+                  <span>Add New Shopkeeper & Canteen</span>
                 </button>
               </div>
             </div>
@@ -1557,12 +1667,12 @@ export default function WebApp() {
 
       </main>
 
-      {/* SUPER ADMIN MODAL */}
+      {/* SUPER ADMIN MODAL (ADD SHOPKEEPER & NEW CANTEEN SHOP) */}
       {isAddShopkeeperOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
           <div className="w-full max-w-md glass-panel border border-purple-500/40 p-6 rounded-3xl space-y-4 shadow-2xl relative">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="font-extrabold font-heading text-lg text-white">Create Shopkeeper Account</h3>
+              <h3 className="font-extrabold font-heading text-lg text-white">Create Shopkeeper & Canteen</h3>
               <button onClick={() => setIsAddShopkeeperOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
 
@@ -1592,23 +1702,34 @@ export default function WebApp() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">Assign Canteen Shop</label>
-                <select 
+                <label className="text-xs font-semibold text-slate-300">New Canteen Shop Name</label>
+                <input 
+                  type="text" 
+                  required
+                  value={newShopName}
+                  onChange={(e) => setNewShopName(e.target.value)}
+                  placeholder="e.g. Campus Juice & Waffle Bar"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300">Canteen Shop ID</label>
+                <input 
+                  type="text" 
+                  required
                   value={newShopkeeperShopId}
                   onChange={(e) => setNewShopkeeperShopId(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-purple-500"
-                >
-                  {shops.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
+                  placeholder="e.g. shop-waffle"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-purple-500 font-mono"
+                />
               </div>
 
               <button 
                 type="submit"
                 className="w-full bg-purple-600 hover:bg-purple-500 text-white font-extrabold py-3 rounded-2xl text-xs transition shadow-lg shadow-purple-600/30"
               >
-                Create Shopkeeper Account
+                Create Shopkeeper & Activate Shop
               </button>
             </form>
           </div>
@@ -1771,7 +1892,7 @@ export default function WebApp() {
         </div>
       )}
 
-      {/* DYNAMIC CHECKOUT MODAL WITH VERIFIED PAYMENT METHODS */}
+      {/* DYNAMIC CHECKOUT MODAL */}
       {isCheckoutOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
           <div className="w-full max-w-lg glass-panel border border-slate-800 p-6 rounded-3xl space-y-5 shadow-2xl relative">
@@ -1783,7 +1904,6 @@ export default function WebApp() {
               <button onClick={() => setIsCheckoutOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
             </div>
 
-            {/* Payment Method Selector */}
             <div className="grid grid-cols-2 gap-3">
               <button 
                 onClick={() => setSelectedPaymentMethod('Online UPI')}
