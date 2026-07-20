@@ -391,7 +391,7 @@ export default function WebApp() {
       paymentStatus: apiRes.paymentStatus,
       transactionId: apiRes.transactionId,
       paidAt: apiRes.paymentStatus === 'Paid' ? new Date().toLocaleTimeString() : undefined,
-      status: 'Pending', // Starts in Pending status awaiting shopkeeper acceptance!
+      status: 'Pending',
       createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       estimatedMinutes: 12,
       qrToken: uniqueQrToken,
@@ -413,7 +413,7 @@ export default function WebApp() {
     });
   };
 
-  // FEATURE 2: ORDER CANCELLATION (BEFORE ORDER IS ACCEPTED)
+  // ORDER CANCELLATION (BEFORE ORDER IS ACCEPTED)
   const handleCustomerCancelOrder = async (orderIdToCancel: string) => {
     if (!currentOrder || currentOrder.id !== orderIdToCancel) return;
 
@@ -442,7 +442,7 @@ export default function WebApp() {
     }
   };
 
-  // SHOPKEEPER ACCEPT ORDER ACTION (Moves Pending -> Accepted)
+  // SHOPKEEPER ACCEPT ORDER ACTION
   const handleShopkeeperAcceptOrder = async (orderIdToAccept: string) => {
     await acceptOrderApi(orderIdToAccept);
     if (currentOrder && currentOrder.id === orderIdToAccept) {
@@ -702,12 +702,15 @@ export default function WebApp() {
     }
   };
 
-  // SHOPKEEPER 3: ADD OR EDIT FOOD ITEM
+  // BUG 2 FIX: SHOPKEEPER ADD OR EDIT FOOD ITEM (EXPLICIT SHOP_ID MATCH)
   const handleSaveFoodItem = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const activeShopId = currentUser?.shopId || 'shop-1';
-      const activeShop = shops.find(s => s.id === activeShopId) || shops[0];
+      const activeShop = shops.find(s => s.id === activeShopId) || {
+        id: activeShopId,
+        name: currentUser?.name ? `${currentUser.name}'s Canteen` : 'Campus Canteen'
+      };
       const finalImage = getCategoryDefaultImage(itemForm.category, itemForm.image);
 
       const itemToSave: FoodItem = editingItem ? {
@@ -732,7 +735,7 @@ export default function WebApp() {
 
       setIsItemModalOpen(false);
       setEditingItem(null);
-      alert(`✅ Food item "${itemToSave.name}" saved to database!`);
+      alert(`✅ Food item "${itemToSave.name}" saved to database! Visible under ${activeShop.name}.`);
     } catch (err: any) {
       alert(`❌ Error saving food item: ${err.message || 'Failed to save'}`);
     }
@@ -803,7 +806,14 @@ export default function WebApp() {
     return matchesCategory && matchesShop && matchesSearch;
   });
 
-  const activeShopForOwner = shops.find(s => s.id === (currentUser?.shopId || 'shop-1')) || shops[0];
+  const activeShopForOwner = shops.find(s => s.id === (currentUser?.shopId || 'shop-1')) || {
+    id: currentUser?.shopId || 'shop-1',
+    name: currentUser?.name ? `${currentUser.name}'s Canteen` : 'Campus Canteen',
+    email: currentUser?.email || 'canteen@hunger.com',
+    upiId: `${(currentUser?.shopId || 'shop1').replace(/[^a-zA-Z0-9]/g, '')}@okaxis`,
+    qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=canteen@okaxis&pn=Canteen',
+    rating: 4.8
+  };
 
   const triggerManualSync = async () => {
     const dbShops = await fetchShopsFromSupabase();
@@ -904,7 +914,7 @@ export default function WebApp() {
                 setAuthEmail('');
                 setAuthPassword('');
               }}
-              className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${authTab === 'customer' ? 'bg-blue-700 text-white shadow-lg shadow-blue-700/25' : 'text-slate-400 hover:text-white'}`}
+              className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${authTab === 'customer' ? 'bg-blue-700 text-white shadow-lg shadow-blue-700/25' : 'text-slate-400 hover:text-slate-700'}`}
             >
               {t('customerLogin', currentLang)}
             </button>
@@ -914,7 +924,7 @@ export default function WebApp() {
                 setAuthEmail('');
                 setAuthPassword('');
               }}
-              className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${authTab === 'shopkeeper' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/25' : 'text-slate-400 hover:text-white'}`}
+              className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${authTab === 'shopkeeper' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/25' : 'text-slate-400 hover:text-slate-700'}`}
             >
               {t('shopkeeperLogin', currentLang)}
             </button>
@@ -1094,20 +1104,20 @@ export default function WebApp() {
             <div className="flex items-center gap-1 sm:gap-2">
               <button 
                 onClick={() => setActiveTab('home')}
-                className={`px-3 py-1.5 rounded-lg transition ${activeTab === 'home' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
+                className={`px-3 py-1.5 rounded-lg transition ${activeTab === 'home' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-slate-700'}`}
               >
                 {t('overview', currentLang)}
               </button>
               <button 
                 onClick={() => setActiveTab('menu')}
-                className={`px-3 py-1.5 rounded-lg transition ${activeTab === 'menu' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
+                className={`px-3 py-1.5 rounded-lg transition ${activeTab === 'menu' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-slate-700'}`}
               >
                 {t('fullMenu', currentLang)}
               </button>
               {currentOrder && (
                 <button 
                   onClick={() => setActiveTab('tracking')}
-                  className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${activeTab === 'tracking' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
+                  className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${activeTab === 'tracking' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-slate-700'}`}
                 >
                   <span>{t('liveOrder', currentLang)}</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
@@ -1117,14 +1127,14 @@ export default function WebApp() {
           )}
 
           {currentUser.role === 'shopkeeper' && (
-            <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-2">
-              <Store className="w-4 h-4 text-emerald-400" />
+            <span className="bg-emerald-500/20 text-emerald-500 border border-emerald-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-2">
+              <Store className="w-4 h-4 text-emerald-500" />
               <span>{t('shopkeeperDashboard', currentLang)} ({activeShopForOwner.name})</span>
             </span>
           )}
 
           {currentUser.role === 'super_admin' && (
-            <span className="bg-purple-600/20 text-purple-300 border border-purple-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-2">
+            <span className="bg-purple-600/20 text-purple-400 border border-purple-500/40 text-xs px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-2">
               <Shield className="w-4 h-4 text-purple-400" />
               <span>{t('superAdminDashboard', currentLang)}</span>
             </span>
@@ -1143,8 +1153,8 @@ export default function WebApp() {
               theme === 'dark' ? 'glass-panel border-slate-800 bg-gradient-to-r from-slate-900 via-slate-900/90 to-blue-950/40' : 'bg-white border-slate-200 shadow-xl'
             }`}>
               <div className="relative z-10 max-w-2xl space-y-4">
-                <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-3 py-1 rounded-full text-xs font-semibold">
-                  <Flame className="w-3.5 h-3.5 text-emerald-400" />
+                <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 px-3 py-1 rounded-full text-xs font-semibold">
+                  <Flame className="w-3.5 h-3.5 text-emerald-500" />
                   <span>Welcome to Hunger, {currentUser.name}!</span>
                 </div>
                 
@@ -1168,26 +1178,28 @@ export default function WebApp() {
               </div>
             </div>
 
-            {/* FEATURE 4: DISCOUNT & SALES OFFERS BANNER */}
+            {/* DISCOUNT OFFERS BANNER */}
             {discounts.filter(d => d.isActive).length > 0 && (
               <div className="space-y-3">
-                <h3 className="text-sm font-extrabold flex items-center gap-2 text-emerald-400">
+                <h3 className="text-sm font-extrabold flex items-center gap-2 text-emerald-500">
                   <Tag className="w-4 h-4" />
                   <span>Active Shop Discounts & Offers</span>
                 </h3>
                 <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
                   {discounts.filter(d => d.isActive).map(disc => (
-                    <div key={disc.id} className="min-w-[280px] bg-gradient-to-r from-emerald-950/80 to-slate-900 border border-emerald-500/40 p-3.5 rounded-2xl flex items-center justify-between text-xs">
+                    <div key={disc.id} className={`min-w-[280px] p-3.5 rounded-2xl border flex items-center justify-between text-xs ${
+                      theme === 'dark' ? 'bg-slate-900 border-emerald-500/40 text-white' : 'bg-white border-emerald-500/50 text-slate-900 shadow-md'
+                    }`}>
                       <div>
-                        <span className="bg-emerald-500/20 text-emerald-300 font-extrabold px-2 py-0.5 rounded text-[10px]">
+                        <span className="bg-emerald-500/20 text-emerald-600 font-extrabold px-2 py-0.5 rounded text-[10px]">
                           {disc.code}
                         </span>
-                        <h4 className="font-bold text-white mt-1">{disc.title}</h4>
+                        <h4 className="font-bold mt-1">{disc.title}</h4>
                         <p className="text-[11px] text-slate-400">
                           {disc.type === 'percentage' ? `${disc.value}% OFF` : `₹${disc.value} OFF`} ({disc.appliesTo})
                         </p>
                       </div>
-                      <Percent className="w-8 h-8 text-emerald-400/40 flex-shrink-0" />
+                      <Percent className="w-8 h-8 text-emerald-500/40 flex-shrink-0" />
                     </div>
                   ))}
                 </div>
@@ -1214,10 +1226,10 @@ export default function WebApp() {
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 font-bold group-hover:bg-blue-700 group-hover:text-white transition">
+                      <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-500 font-bold group-hover:bg-blue-700 group-hover:text-white transition">
                         <Store className="w-5 h-5" />
                       </div>
-                      <span className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold px-2 py-0.5 rounded-md">
+                      <span className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-[11px] font-bold px-2 py-0.5 rounded-md">
                         ★ {shop.rating}
                       </span>
                     </div>
@@ -1229,7 +1241,7 @@ export default function WebApp() {
 
                     <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
                       <span>Time-Slot Availability</span>
-                      <span className="text-emerald-400 font-semibold group-hover:translate-x-1 transition flex items-center">
+                      <span className="text-emerald-500 font-semibold group-hover:translate-x-1 transition flex items-center">
                         Menu &rarr;
                       </span>
                     </div>
@@ -1238,7 +1250,7 @@ export default function WebApp() {
               </div>
             </div>
 
-            {/* FEATURED DISHES WITH STRIKETHROUGH DISCOUNTED PRICING */}
+            {/* FEATURED DISHES */}
             <div className="space-y-4 pt-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold font-heading">{t('featuredDishes', currentLang)} ({filteredMenu.length})</h2>
@@ -1302,7 +1314,7 @@ export default function WebApp() {
                             {hasDiscount && (
                               <span className="text-xs text-slate-500 line-through">₹{item.price}</span>
                             )}
-                            <span className="font-heading font-extrabold text-lg text-emerald-400">₹{finalPrice}</span>
+                            <span className="font-heading font-extrabold text-lg text-emerald-500">₹{finalPrice}</span>
                           </div>
                         </div>
 
@@ -1327,17 +1339,117 @@ export default function WebApp() {
           </div>
         )}
 
-        {/* CUSTOMER DASHBOARD: LIVE ORDER & ORDER CANCELLATION ENGINE */}
+        {/* CUSTOMER DASHBOARD: FULL MENU */}
+        {currentUser.role === 'customer' && activeTab === 'menu' && (
+          <div className="space-y-6 animate-fadeIn">
+            <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl border ${
+              theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-md'
+            }`}>
+              <div>
+                <h2 className="text-2xl font-extrabold font-heading">{t('fullMenu', currentLang)} ({filteredMenu.length} items)</h2>
+                <p className="text-xs text-slate-400">Time-slot availability & shop payment QR enabled</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-emerald-500" />
+                <select 
+                  value={selectedShopId} 
+                  onChange={(e) => setSelectedShopId(e.target.value)}
+                  className={`text-xs rounded-xl px-3 py-2 border focus:outline-none ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-800'
+                  }`}
+                >
+                  <option value="all">All Canteens & Shops ({shops.length})</option>
+                  {shops.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredMenu.map(item => {
+                const inCart = cart.find(i => i.id === item.id);
+                const availableNow = isItemInTimeSlot(item);
+                const { finalPrice, discountAmount } = getDiscountedPrice(item, discounts);
+                const hasDiscount = discountAmount > 0;
+
+                return (
+                  <div key={item.id} className={`rounded-2xl p-4 flex flex-col justify-between space-y-3 border relative ${
+                    item.isSpecial ? 'border-amber-400/80 shadow-lg shadow-amber-400/10' :
+                    theme === 'dark' ? 'glass-card border-slate-800' : 'bg-white border-slate-200 shadow-md'
+                  }`}>
+                    
+                    {item.isSpecial && (
+                      <span className="absolute top-2 right-2 bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-extrabold text-[10px] px-2 py-0.5 rounded-full">
+                        🌟 Special
+                      </span>
+                    )}
+
+                    <div className="flex gap-4">
+                      <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className={`w-24 h-24 rounded-xl object-cover ${!availableNow ? 'grayscale opacity-60' : ''}`} />
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase text-emerald-500 tracking-wider">{item.shopName}</span>
+                          <span className="text-xs font-semibold text-emerald-500">★ {item.rating}</span>
+                        </div>
+                        <h3 className="font-bold text-sm">{item.name}</h3>
+                        <p className="text-[11px] text-slate-400 line-clamp-2">{item.description}</p>
+                        
+                        <div className="flex items-center gap-2 pt-1">
+                          {hasDiscount && (
+                            <span className="text-xs text-slate-500 line-through">₹{item.price}</span>
+                          )}
+                          <span className="font-heading font-extrabold text-base text-emerald-500">₹{finalPrice}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px]">
+                      <span className={`px-2 py-0.5 rounded ${availableNow ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/30' : 'bg-red-950/80 text-red-400 border border-red-500/30'}`}>
+                        {availableNow ? `Slot: ${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'}` : t('slotClosed', currentLang)}
+                      </span>
+
+                      {inCart ? (
+                        <div className="flex items-center gap-3 bg-blue-700 text-white px-3 py-1 rounded-xl font-bold shadow-md shadow-blue-700/20">
+                          <button onClick={() => updateQty(item.id, -1)}><Minus className="w-3.5 h-3.5" /></button>
+                          <span>{inCart.qty}</span>
+                          <button onClick={() => updateQty(item.id, 1)}><Plus className="w-3.5 h-3.5" /></button>
+                        </div>
+                      ) : (
+                        <button 
+                          disabled={!availableNow}
+                          onClick={() => addToCart(item)}
+                          className={`px-3 py-1.5 rounded-xl font-semibold transition ${
+                            availableNow 
+                              ? 'bg-blue-600/10 hover:bg-blue-600 text-blue-500 hover:text-white border border-blue-600/30 active:scale-95' 
+                              : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                          }`}
+                        >
+                          + Add
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* CUSTOMER DASHBOARD: LIVE ORDER & ORDER CANCELLATION */}
         {currentUser.role === 'customer' && activeTab === 'tracking' && currentOrder && (
           <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
-            <div className="glass-panel p-6 rounded-3xl border border-slate-800 text-center space-y-3 relative overflow-hidden">
+            <div className={`p-6 rounded-3xl border text-center space-y-3 relative overflow-hidden ${
+              theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+            }`}>
               
               <div className="flex items-center justify-center gap-2 flex-wrap">
                 <span className={`inline-flex items-center gap-1.5 border px-3 py-1 rounded-full text-xs font-bold ${
-                  currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
-                  currentOrder.paymentStatus === 'Refund Pending' ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' :
-                  currentOrder.paymentStatus === 'Pending' ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' :
-                  'bg-red-500/10 border-red-500/30 text-red-400'
+                  currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' :
+                  currentOrder.paymentStatus === 'Refund Pending' ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' :
+                  currentOrder.paymentStatus === 'Pending' ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-500' :
+                  'bg-red-500/10 border-red-500/30 text-red-500'
                 }`}>
                   {currentOrder.paymentStatus === 'Paid' ? '✅ Paid' :
                    currentOrder.paymentStatus === 'Refund Pending' ? '🔄 Refund Pending' :
@@ -1346,7 +1458,9 @@ export default function WebApp() {
                 </span>
 
                 {currentOrder.transactionId && (
-                  <span className="bg-slate-900 border border-slate-800 text-slate-300 font-mono text-[10px] px-2.5 py-1 rounded-full">
+                  <span className={`border font-mono text-[10px] px-2.5 py-1 rounded-full ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-300 text-slate-700'
+                  }`}>
                     Ref: {currentOrder.transactionId}
                   </span>
                 )}
@@ -1367,12 +1481,11 @@ export default function WebApp() {
                   : 'Show your unique QR code at counter when status is Food Ready'}
               </p>
 
-              {/* FEATURE 2: ORDER CANCELLATION BUTTON BEFORE ACCEPTANCE */}
               {currentOrder.status === 'Pending' && (
                 <div className="pt-2">
                   <button 
                     onClick={() => handleCustomerCancelOrder(currentOrder.id)}
-                    className="bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold px-5 py-2.5 rounded-2xl text-xs transition shadow-lg shadow-red-950/50 flex items-center gap-2 mx-auto active:scale-95"
+                    className="bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold px-5 py-2.5 rounded-2xl text-xs transition shadow-lg flex items-center gap-2 mx-auto active:scale-95"
                   >
                     <Ban className="w-4 h-4 text-red-400" />
                     <span>Cancel Order #{currentOrder.id} (Before Accepted) 🚫</span>
@@ -1390,15 +1503,17 @@ export default function WebApp() {
               </div>
             </div>
 
-            <div className="glass-panel p-6 rounded-3xl border border-slate-800 space-y-6">
-              <h3 className="font-bold text-sm text-slate-200 border-b border-slate-800 pb-3">Real-time Order Status Flow</h3>
+            <div className={`p-6 rounded-3xl border space-y-6 ${
+              theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+            }`}>
+              <h3 className="font-bold text-sm border-b border-slate-800 pb-3">Real-time Order Status Flow</h3>
 
               <div className="space-y-6 relative before:absolute before:left-4 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-800">
                 <div className="flex items-start gap-4 relative z-10">
                   <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold">1</div>
                   <div>
                     <h4 className="font-bold text-sm">Order Placed (Pending Acceptance)</h4>
-                    <p className="text-xs text-slate-400">Status: <span className="text-yellow-400 font-bold">Pending</span> • Payment: <span className="text-emerald-400 font-bold">{currentOrder.paymentStatus}</span></p>
+                    <p className="text-xs text-slate-400">Status: <span className="text-yellow-500 font-bold">Pending</span> • Payment: <span className="text-emerald-500 font-bold">{currentOrder.paymentStatus}</span></p>
                   </div>
                 </div>
 
@@ -1422,7 +1537,9 @@ export default function WebApp() {
 
             {/* UNIQUE SINGLE-USE QR CODE */}
             {currentOrder.status !== 'Cancelled' && (
-              <div className="glass-card p-6 rounded-3xl border border-slate-800 text-center space-y-4">
+              <div className={`p-6 rounded-3xl border text-center space-y-4 ${
+                theme === 'dark' ? 'glass-card border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+              }`}>
                 <div className="inline-flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs text-slate-300">
                   <QrCode className="w-4 h-4 text-emerald-400" />
                   <span className="font-semibold">Single-Use Order Collection QR Code</span>
@@ -1437,7 +1554,7 @@ export default function WebApp() {
                 </div>
 
                 <p className="text-xs text-slate-400 font-mono">
-                  Order ID: <span className="text-white font-bold">{currentOrder.id}</span>
+                  Order ID: <span className="font-bold">{currentOrder.id}</span>
                 </p>
               </div>
             )}
@@ -1448,7 +1565,7 @@ export default function WebApp() {
         {(currentUser.role === 'shopkeeper' || currentUser.role === 'super_admin') && (
           <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
             
-            {/* INCOMING PENDING & ACCEPTED ORDERS WITH ACCEPT & REJECT ACTIONS */}
+            {/* INCOMING PENDING & ACCEPTED ORDERS */}
             <div className={`p-6 rounded-3xl border space-y-4 ${
               theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
             }`}>
@@ -1458,16 +1575,18 @@ export default function WebApp() {
               </h3>
 
               {currentOrder ? (
-                <div className="glass-card p-5 rounded-2xl space-y-4 border border-slate-800">
+                <div className={`p-5 rounded-2xl space-y-4 border ${
+                  theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
+                }`}>
                   <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <h4 className="font-bold text-sm">Order #{currentOrder.id} • {currentOrder.customerName}</h4>
                         
                         <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border uppercase ${
-                          currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' :
-                          currentOrder.paymentStatus === 'Refund Pending' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
-                          'bg-red-500/20 text-red-400 border-red-500/40'
+                          currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/40' :
+                          currentOrder.paymentStatus === 'Refund Pending' ? 'bg-amber-500/20 text-amber-500 border-amber-500/40' :
+                          'bg-red-500/20 text-red-500 border-red-500/40'
                         }`}>
                           {currentOrder.paymentStatus}
                         </span>
@@ -1476,10 +1595,10 @@ export default function WebApp() {
                     </div>
 
                     <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
-                      currentOrder.status === 'Pending' ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40 animate-pulse' :
-                      currentOrder.status === 'Accepted' ? 'bg-blue-600/20 text-blue-400 border-blue-600/40' :
-                      currentOrder.status === 'Cancelled' ? 'bg-red-500/20 text-red-400 border-red-500/40' :
-                      'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+                      currentOrder.status === 'Pending' ? 'bg-yellow-500/20 text-yellow-500 border-yellow-500/40 animate-pulse' :
+                      currentOrder.status === 'Accepted' ? 'bg-blue-600/20 text-blue-500 border-blue-600/40' :
+                      currentOrder.status === 'Cancelled' ? 'bg-red-500/20 text-red-500 border-red-500/40' :
+                      'bg-emerald-500/20 text-emerald-500 border-emerald-500/40'
                     }`}>
                       {currentOrder.status}
                     </span>
@@ -1487,14 +1606,15 @@ export default function WebApp() {
 
                   <div className="space-y-2">
                     {currentOrder.items.map(item => (
-                      <div key={item.id} className="flex justify-between text-xs bg-slate-900/60 p-2.5 rounded-xl">
+                      <div key={item.id} className={`flex justify-between text-xs p-2.5 rounded-xl border ${
+                        theme === 'dark' ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
+                      }`}>
                         <span>{item.qty}x {item.name}</span>
                         <span className="font-bold">₹{item.discountedPrice * item.qty}</span>
                       </div>
                     ))}
                   </div>
 
-                  {/* SHOPKEEPER ORDER ACTION BUTTONS */}
                   <div className="pt-2 flex flex-wrap items-center gap-3">
                     {currentOrder.status === 'Pending' && (
                       <>
@@ -1533,7 +1653,7 @@ export default function WebApp() {
                     {currentOrder.paymentStatus === 'Unpaid' && (
                       <button 
                         onClick={() => handleMarkOrderPaidCash(currentOrder.id)}
-                        className="bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/40 font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5"
+                        className="bg-emerald-600/20 hover:bg-emerald-600 text-emerald-500 hover:text-white border border-emerald-500/40 font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5"
                       >
                         <DollarSign className="w-4 h-4" />
                         <span>Collect Cash & Mark Paid</span>
@@ -1548,13 +1668,89 @@ export default function WebApp() {
               )}
             </div>
 
-            {/* FEATURE 4: SHOPKEEPER / SUPER ADMIN DISCOUNT & OFFERS MANAGER */}
+            {/* SHOPKEEPER FOOD MENU MANAGEMENT WITH BUG 2 FIX */}
+            {currentUser.role === 'shopkeeper' && (
+              <div className={`p-6 rounded-3xl border space-y-4 ${
+                theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+              }`}>
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div>
+                    <h3 className="font-extrabold font-heading text-base">{t('foodMenuManagement', currentLang)} ({activeShopForOwner.name})</h3>
+                    <p className="text-xs text-slate-400">Items added here appear immediately on Customer Dashboard</p>
+                  </div>
+
+                  <button 
+                    onClick={openAddItemModal}
+                    className="bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>{t('addNewItem', currentLang)}</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {menuItems.filter(i => currentUser?.role === 'super_admin' || i.shopId === activeShopForOwner.id || i.shopId === currentUser?.shopId).map(item => (
+                    <div key={item.id} className={`p-4 rounded-2xl flex justify-between gap-3 border transition ${
+                      item.isSpecial ? 'border-amber-400/80 shadow-md shadow-amber-400/10' :
+                      theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}>
+                      <div className="flex gap-3">
+                        <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className="w-16 h-16 rounded-xl object-cover" />
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-xs">{item.name}</h4>
+                            {item.isSpecial && (
+                              <span className="bg-amber-400/20 text-amber-500 border border-amber-400/40 text-[9px] font-extrabold px-1.5 py-0.5 rounded">
+                                🌟 Special
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs font-extrabold text-blue-500">₹{item.price}</p>
+                          <p className="text-[10px] text-slate-400">Slot: {item.availableFrom || '08:00'} - {item.availableUntil || '22:00'}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col justify-between items-end">
+                        <button 
+                          onClick={() => handleToggleSpecial(item.id)}
+                          className={`p-1.5 rounded-lg border text-[10px] font-bold transition flex items-center gap-1 ${
+                            item.isSpecial 
+                              ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md' 
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          <Star className={`w-3 h-3 ${item.isSpecial ? 'fill-slate-950' : ''}`} />
+                          <span>{item.isSpecial ? 'Special' : 'Mark Special'}</span>
+                        </button>
+
+                        <div className="flex items-center gap-1 pt-2">
+                          <button 
+                            onClick={() => openEditItemModal(item)}
+                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteItem(item.id)}
+                            className="p-1.5 bg-red-950/60 hover:bg-red-900 text-red-400 rounded-lg transition"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* DISCOUNT MANAGER */}
             <div className={`p-6 rounded-3xl border space-y-4 ${
               theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
             }`}>
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <div className="flex items-center gap-2">
-                  <Tag className="w-5 h-5 text-emerald-400" />
+                  <Tag className="w-5 h-5 text-emerald-500" />
                   <h3 className="font-extrabold font-heading text-base">Shop Discount & Sale Offers</h3>
                 </div>
 
@@ -1569,10 +1765,12 @@ export default function WebApp() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {discounts.filter(d => currentUser?.role === 'super_admin' || d.shopId === activeShopForOwner.id).map(disc => (
-                  <div key={disc.id} className="p-4 rounded-2xl border bg-slate-900/60 border-slate-800 flex items-center justify-between">
+                  <div key={disc.id} className={`p-4 rounded-2xl border flex items-center justify-between ${
+                    theme === 'dark' ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="bg-emerald-500/20 text-emerald-400 font-extrabold text-xs px-2 py-0.5 rounded">
+                        <span className="bg-emerald-500/20 text-emerald-500 font-extrabold text-xs px-2 py-0.5 rounded">
                           {disc.code}
                         </span>
                         <h4 className="font-bold text-xs">{disc.title}</h4>
@@ -1585,7 +1783,6 @@ export default function WebApp() {
                     <button 
                       onClick={() => handleDeleteDiscount(disc.id)}
                       className="p-1.5 bg-red-950/60 hover:bg-red-900 text-red-400 rounded-lg text-xs"
-                      title="Delete Discount Offer"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -1594,13 +1791,13 @@ export default function WebApp() {
               </div>
             </div>
 
-            {/* FEATURE 5: SALES ANALYTICS DASHBOARD */}
+            {/* SALES ANALYTICS */}
             <div className={`p-6 rounded-3xl border space-y-6 ${
               theme === 'dark' ? 'glass-panel border-emerald-500/40 bg-slate-900' : 'bg-white border-slate-200 shadow-xl'
             }`}>
               <div className="flex items-center justify-between border-b border-slate-800 pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-2xl text-emerald-400">
+                  <div className="p-3 bg-emerald-500/20 border border-emerald-500/40 rounded-2xl text-emerald-500">
                     <TrendingUp className="w-6 h-6" />
                   </div>
                   <div>
@@ -1611,28 +1808,28 @@ export default function WebApp() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-950 space-y-1">
+                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                   <span className="text-xs text-slate-400">{t('totalRevenue', currentLang)}</span>
-                  <p className="font-heading font-extrabold text-2xl text-emerald-400">₹{totalSalesRevenue}</p>
+                  <p className="font-heading font-extrabold text-2xl text-emerald-500">₹{totalSalesRevenue}</p>
                   <p className="text-[11px] text-slate-400">{paidOrdersCount} Paid Orders</p>
                 </div>
 
-                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-950 space-y-1">
+                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                   <span className="text-xs text-slate-400">{t('totalOrders', currentLang)}</span>
-                  <p className="font-heading font-extrabold text-2xl text-blue-400">{targetShopOrders.length}</p>
+                  <p className="font-heading font-extrabold text-2xl text-blue-500">{targetShopOrders.length}</p>
                   <p className="text-[11px] text-slate-400">{completedHandoverCount} Handed Over</p>
                 </div>
 
-                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-950 space-y-1">
+                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                   <span className="text-xs text-slate-400">Paid vs Unpaid</span>
-                  <p className="font-heading font-extrabold text-xl text-emerald-400">
-                    {paidOrdersCount} <span className="text-xs text-slate-400">Paid</span> / {unpaidOrdersCount} <span className="text-xs text-red-400">Unpaid</span>
+                  <p className="font-heading font-extrabold text-xl text-emerald-500">
+                    {paidOrdersCount} <span className="text-xs text-slate-400">Paid</span> / {unpaidOrdersCount} <span className="text-xs text-red-500">Unpaid</span>
                   </p>
                 </div>
 
-                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-950 space-y-1">
+                <div className={`p-4 rounded-2xl border space-y-1 ${theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                   <span className="text-xs text-slate-400">Cancellations</span>
-                  <p className="font-heading font-extrabold text-2xl text-red-400">{cancelledOrdersCount}</p>
+                  <p className="font-heading font-extrabold text-2xl text-red-500">{cancelledOrdersCount}</p>
                   <p className="text-[11px] text-slate-400">Cancelled before preparation</p>
                 </div>
               </div>
@@ -1643,47 +1840,55 @@ export default function WebApp() {
 
       </main>
 
-      {/* CREATE DISCOUNT OFFER MODAL */}
+      {/* MODALS */}
       {isDiscountModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className="w-full max-w-md glass-panel border border-emerald-500/40 p-6 rounded-3xl space-y-4 shadow-2xl relative text-white">
+          <div className={`w-full max-w-md p-6 rounded-3xl space-y-4 shadow-2xl relative border ${
+            theme === 'dark' ? 'glass-panel border-emerald-500/40 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-extrabold font-heading text-lg">Create Shop Discount Offer</h3>
-              <button onClick={() => setIsDiscountModalOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+              <button onClick={() => setIsDiscountModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
             </div>
 
             <form onSubmit={handleSaveDiscount} className="space-y-4">
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">Discount Coupon Code</label>
+                <label className="text-xs font-semibold">Discount Coupon Code</label>
                 <input 
                   type="text" 
                   required
                   value={discountForm.code}
                   onChange={(e) => setDiscountForm({ ...discountForm, code: e.target.value })}
                   placeholder="e.g. SUMMER20"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 font-mono uppercase"
+                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none font-mono uppercase ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-300">Offer Title</label>
+                <label className="text-xs font-semibold">Offer Title</label>
                 <input 
                   type="text" 
                   required
                   value={discountForm.title}
                   onChange={(e) => setDiscountForm({ ...discountForm, title: e.target.value })}
                   placeholder="e.g. 20% Off South Indian Dishes"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-300">Type</label>
+                  <label className="text-xs font-semibold">Type</label>
                   <select 
                     value={discountForm.type}
                     onChange={(e) => setDiscountForm({ ...discountForm, type: e.target.value as any })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200"
+                    className={`w-full border rounded-xl px-3.5 py-2 text-xs ${
+                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                   >
                     <option value="percentage">Percentage (%) Off</option>
                     <option value="flat">Flat Amount (₹) Off</option>
@@ -1691,13 +1896,15 @@ export default function WebApp() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-300">Value ({discountForm.type === 'percentage' ? '%' : '₹'})</label>
+                  <label className="text-xs font-semibold">Value ({discountForm.type === 'percentage' ? '%' : '₹'})</label>
                   <input 
                     type="number" 
                     required
                     value={discountForm.value}
                     onChange={(e) => setDiscountForm({ ...discountForm, value: Number(e.target.value) })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200"
+                    className={`w-full border rounded-xl px-3.5 py-2 text-xs ${
+                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                   />
                 </div>
               </div>
@@ -1716,17 +1923,21 @@ export default function WebApp() {
       {/* VERCEL APP LINK SHARING MODAL */}
       {isVercelModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className="w-full max-w-md glass-panel border border-slate-800 p-6 rounded-3xl space-y-5 shadow-2xl relative text-white">
+          <div className={`w-full max-w-md p-6 rounded-3xl space-y-5 shadow-2xl relative border ${
+            theme === 'dark' ? 'glass-panel border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <Share2 className="w-5 h-5 text-blue-500" />
                 <h3 className="font-extrabold font-heading text-lg">Share Vercel App Link</h3>
               </div>
-              <button onClick={() => setIsVercelModalOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+              <button onClick={() => setIsVercelModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-center space-y-3">
-              <span className="text-xs font-semibold text-slate-300">Scan QR Code on Mobile to Open Live App</span>
+            <div className={`border p-4 rounded-2xl text-center space-y-3 ${
+              theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
+              <span className="text-xs font-semibold">Scan QR Code on Mobile to Open Live App</span>
               <div className="w-48 h-48 bg-white p-3 rounded-2xl mx-auto flex items-center justify-center shadow-lg border-2 border-blue-600/20">
                 <img 
                   src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(vercelAppUrl)}`} 
@@ -1735,8 +1946,10 @@ export default function WebApp() {
                 />
               </div>
               
-              <div className="pt-2 flex items-center gap-2 bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
-                <span className="text-xs font-mono text-blue-400 truncate flex-1">{vercelAppUrl}</span>
+              <div className={`pt-2 flex items-center gap-2 border p-2.5 rounded-xl ${
+                theme === 'dark' ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-300'
+              }`}>
+                <span className="text-xs font-mono text-blue-500 truncate flex-1">{vercelAppUrl}</span>
                 <button 
                   onClick={() => {
                     navigator.clipboard.writeText(vercelAppUrl);
@@ -1757,12 +1970,14 @@ export default function WebApp() {
       {/* FOOD ITEM ADD / EDIT MODAL */}
       {isItemModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className="w-full max-w-lg glass-panel border border-slate-800 p-6 rounded-3xl space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto text-white">
+          <div className={`w-full max-w-lg p-6 rounded-3xl space-y-4 shadow-2xl relative border max-h-[90vh] overflow-y-auto ${
+            theme === 'dark' ? 'glass-panel border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <h3 className="font-extrabold font-heading text-lg">
                 {editingItem ? 'Edit Food Item' : 'Add New Food Item'}
               </h3>
-              <button onClick={() => setIsItemModalOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+              <button onClick={() => setIsItemModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
             </div>
 
             <form onSubmit={handleSaveFoodItem} className="space-y-4">
@@ -1774,7 +1989,9 @@ export default function WebApp() {
                   value={itemForm.name}
                   onChange={(e) => setItemForm({ ...itemForm, name: e.target.value })}
                   placeholder="e.g. Masala Dosa"
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
                 />
               </div>
 
@@ -1786,7 +2003,9 @@ export default function WebApp() {
                     required
                     value={itemForm.price}
                     onChange={(e) => setItemForm({ ...itemForm, price: Number(e.target.value) })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                    className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none ${
+                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                   />
                 </div>
 
@@ -1795,7 +2014,9 @@ export default function WebApp() {
                   <select 
                     value={itemForm.category}
                     onChange={(e) => setItemForm({ ...itemForm, category: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                    className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none ${
+                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
                   >
                     <option value="South Indian">South Indian</option>
                     <option value="Fast Food">Fast Food</option>
@@ -1813,19 +2034,23 @@ export default function WebApp() {
                   rows={2}
                   value={itemForm.description}
                   onChange={(e) => setItemForm({ ...itemForm, description: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
                 />
               </div>
 
-              <div className="p-3 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-3">
-                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+              <div className={`p-3 rounded-2xl border space-y-3 ${
+                theme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <label className="flex items-center gap-2 text-xs cursor-pointer">
                   <input 
                     type="checkbox" 
                     checked={itemForm.isSpecial}
                     onChange={(e) => setItemForm({ ...itemForm, isSpecial: e.target.checked })}
                   />
-                  <span className="font-bold text-amber-400 flex items-center gap-1">
-                    <Star className="w-3.5 h-3.5 fill-amber-400" />
+                  <span className="font-bold text-amber-500 flex items-center gap-1">
+                    <Star className="w-3.5 h-3.5 fill-amber-500" />
                     <span>Mark as "Today's Special 🌟"</span>
                   </span>
                 </label>
@@ -1842,33 +2067,39 @@ export default function WebApp() {
         </div>
       )}
 
-      {/* CART & CHECKOUT MODALS WITH DISCOUNTED PRICE BILLING */}
+      {/* CART & CHECKOUT MODALS */}
       {isCartOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
-          <div className="w-full max-w-md bg-slate-900 border-l border-slate-800 p-6 flex flex-col justify-between space-y-4 shadow-2xl text-white">
+          <div className={`w-full max-w-md border-l p-6 flex flex-col justify-between space-y-4 shadow-2xl ${
+            theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
             <div className="space-y-4">
               <div className="flex items-center justify-between pb-4 border-b border-slate-800">
                 <h2 className="font-bold font-heading text-lg flex items-center gap-2">
-                  <ShoppingBag className="w-5 h-5 text-emerald-400" />
+                  <ShoppingBag className="w-5 h-5 text-emerald-500" />
                   <span>Cart ({totalItemsCount})</span>
                 </h2>
-                <button onClick={() => setIsCartOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+                <button onClick={() => setIsCartOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
               </div>
 
               {cart.map(item => (
-                <div key={item.id} className="glass-card p-3 rounded-xl flex items-center justify-between border border-slate-800">
+                <div key={item.id} className={`p-3 rounded-xl flex items-center justify-between border ${
+                  theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
+                }`}>
                   <div>
-                    <h4 className="font-bold text-xs text-white">{item.name}</h4>
+                    <h4 className="font-bold text-xs">{item.name}</h4>
                     <div className="flex items-center gap-2">
                       {item.originalPrice > item.discountedPrice && (
                         <span className="text-[11px] text-slate-500 line-through">₹{item.originalPrice}</span>
                       )}
-                      <span className="text-xs font-bold text-emerald-400">₹{item.discountedPrice} each</span>
+                      <span className="text-xs font-bold text-emerald-500">₹{item.discountedPrice} each</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-2 py-1 rounded-lg text-xs font-bold">
+                  <div className={`flex items-center gap-2 border px-2 py-1 rounded-lg text-xs font-bold ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-300'
+                  }`}>
                     <button onClick={() => updateQty(item.id, -1)}><Minus className="w-3 h-3 text-slate-400" /></button>
-                    <span className="text-white px-1">{item.qty}</span>
+                    <span className="px-1">{item.qty}</span>
                     <button onClick={() => updateQty(item.id, 1)}><Plus className="w-3 h-3 text-slate-400" /></button>
                   </div>
                 </div>
@@ -1877,9 +2108,9 @@ export default function WebApp() {
 
             {cart.length > 0 && (
               <div className="space-y-3 pt-4 border-t border-slate-800">
-                <div className="flex justify-between font-bold text-sm text-white">
-                  <span>Grand Total (With Offers Applied)</span>
-                  <span className="text-emerald-400 font-extrabold">₹{cartSubtotal + 15}</span>
+                <div className="flex justify-between font-bold text-sm">
+                  <span>Grand Total</span>
+                  <span className="text-emerald-500 font-extrabold">₹{cartSubtotal + 15}</span>
                 </div>
                 <button 
                   onClick={() => setIsCheckoutOpen(true)}
@@ -1893,16 +2124,18 @@ export default function WebApp() {
         </div>
       )}
 
-      {/* DYNAMIC CHECKOUT MODAL */}
+      {/* CHECKOUT MODAL */}
       {isCheckoutOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className="w-full max-w-lg glass-panel border border-slate-800 p-6 rounded-3xl space-y-5 shadow-2xl relative text-white">
+          <div className={`w-full max-w-lg p-6 rounded-3xl space-y-5 shadow-2xl relative border ${
+            theme === 'dark' ? 'glass-panel border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
                 <h3 className="font-extrabold font-heading text-lg">Select Payment Mode for {currentCheckoutShop.name}</h3>
-                <p className="text-xs text-slate-400">Shop UPI VPA: <span className="text-emerald-400 font-mono">{currentCheckoutShop.upiId}</span></p>
+                <p className="text-xs text-slate-400">Shop UPI VPA: <span className="text-emerald-500 font-mono">{currentCheckoutShop.upiId}</span></p>
               </div>
-              <button onClick={() => setIsCheckoutOpen(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+              <button onClick={() => setIsCheckoutOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -1910,13 +2143,13 @@ export default function WebApp() {
                 onClick={() => setSelectedPaymentMethod('Online UPI')}
                 className={`p-3.5 rounded-2xl border text-left space-y-1 transition ${
                   selectedPaymentMethod === 'Online UPI' 
-                    ? 'bg-blue-600/20 border-blue-500 text-white shadow-lg shadow-blue-500/20' 
-                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    ? 'bg-blue-600/20 border-blue-500 text-blue-500 shadow-lg shadow-blue-500/20' 
+                    : theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-700'
                 }`}
               >
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-xs">Online UPI (Server Verified)</span>
-                  <Smartphone className="w-4 h-4 text-emerald-400" />
+                  <Smartphone className="w-4 h-4 text-emerald-500" />
                 </div>
                 <p className="text-[10px] text-slate-400">GPay / PhonePe / Paytm direct UPI settlement</p>
               </button>
@@ -1925,21 +2158,23 @@ export default function WebApp() {
                 onClick={() => setSelectedPaymentMethod('Cash on Handover')}
                 className={`p-3.5 rounded-2xl border text-left space-y-1 transition ${
                   selectedPaymentMethod === 'Cash on Handover' 
-                    ? 'bg-emerald-600/20 border-emerald-500 text-white shadow-lg shadow-emerald-500/20' 
-                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    ? 'bg-emerald-600/20 border-emerald-500 text-emerald-500 shadow-lg shadow-emerald-500/20' 
+                    : theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-700'
                 }`}
               >
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-xs">Cash on Handover</span>
-                  <DollarSign className="w-4 h-4 text-emerald-400" />
+                  <DollarSign className="w-4 h-4 text-emerald-500" />
                 </div>
                 <p className="text-[10px] text-slate-400">Pay cash at counter when collecting food</p>
               </button>
             </div>
 
             {selectedPaymentMethod === 'Online UPI' ? (
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-center space-y-3">
-                <span className="text-xs font-semibold text-slate-300">Scan Shop's Uploaded UPI QR Code</span>
+              <div className={`border p-4 rounded-2xl text-center space-y-3 ${
+                theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <span className="text-xs font-semibold">Scan Shop's Uploaded UPI QR Code</span>
                 <div className="w-44 h-44 bg-white p-2.5 rounded-xl mx-auto flex items-center justify-center shadow-lg border-2 border-blue-600/20">
                   <img 
                     src={currentCheckoutShop.qrImageUrl} 
@@ -1950,11 +2185,13 @@ export default function WebApp() {
                 <p className="text-[11px] text-slate-400">Server verified transaction confirmation</p>
               </div>
             ) : (
-              <div className="bg-slate-900 border border-yellow-500/30 p-4 rounded-2xl text-center space-y-2 text-yellow-300">
-                <AlertCircle className="w-6 h-6 mx-auto text-yellow-400" />
+              <div className={`border p-4 rounded-2xl text-center space-y-2 text-yellow-500 ${
+                theme === 'dark' ? 'bg-slate-900 border-yellow-500/30' : 'bg-yellow-50 border-yellow-300'
+              }`}>
+                <AlertCircle className="w-6 h-6 mx-auto text-yellow-500" />
                 <h4 className="font-bold text-xs">Cash on Handover Selected</h4>
                 <p className="text-[11px] text-slate-400">
-                  Your order payment status will show <span className="text-red-400 font-bold">UNPAID</span> until you pay ₹{cartSubtotal + 15} cash to the shopkeeper at the counter.
+                  Your order payment status will show <span className="text-red-500 font-bold">UNPAID</span> until you pay ₹{cartSubtotal + 15} cash to the shopkeeper at the counter.
                 </p>
               </div>
             )}

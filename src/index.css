@@ -2,9 +2,6 @@
   --primary: #1b488d;
   --primary-hover: #15386d;
   --accent: #22994f;
-  --bg-dark: #0b1120;
-  --card-bg: rgba(15, 23, 42, 0.85);
-  --glass-border: rgba(255, 255, 255, 0.1);
 }
 
 * {
@@ -14,12 +11,6 @@
 body {
   margin: 0;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  background-color: #0b1120;
-  background-image: 
-    radial-gradient(at 15% 15%, rgba(27, 72, 141, 0.25) 0px, transparent 50%),
-    radial-gradient(at 85% 85%, rgba(34, 153, 79, 0.22) 0px, transparent 50%);
-  background-attachment: fixed;
-  color: #f1f5f9;
   min-height: 100vh;
 }
 
@@ -28,28 +19,22 @@ h1, h2, h3, h4, .font-heading {
 }
 
 .glass-panel {
-  background: rgba(15, 23, 42, 0.85);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .glass-card {
-  background: rgba(255, 255, 255, 0.03);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .glass-card:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(34, 153, 79, 0.4);
   transform: translateY(-3px);
-  box-shadow: 0 12px 30px -10px rgba(27, 72, 141, 0.3);
+  box-shadow: 0 12px 30px -10px rgba(27, 72, 141, 0.2);
 }
 
 .gradient-text {
-  background: linear-gradient(135deg, #60a5fa 0%, #34d399 50%, #60a5fa 100%);
+  background: linear-gradient(135deg, #2563eb 0%, #059669 50%, #2563eb 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -72,7 +57,6 @@ h1, h2, h3, h4, .font-heading {
   }
 }
 
-/* Matching Logo Frame Badge */
 .logo-badge {
   background: #ffffff;
   border-radius: 16px;
@@ -88,12 +72,12 @@ h1, h2, h3, h4, .font-heading {
   height: 6px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: rgba(100, 116, 139, 0.1);
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(100, 116, 139, 0.4);
   border-radius: 9999px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(34, 153, 79, 0.5);
+  background: rgba(34, 153, 79, 0.6);
 }
