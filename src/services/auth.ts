@@ -1,5 +1,5 @@
 // Authentication & Role-Based Access Control service.
-// Supports Strict Exact Case-Sensitive Hidden Super Admin Access via Customer Login form for 'harshit071111@gmail.com'.
+// Supports Strict Role-Locking (Customer vs Shopkeeper vs Super Admin) & Unlimited Shopkeeper Accounts.
 
 export type UserRole = 'customer' | 'shopkeeper' | 'super_admin';
 
@@ -57,16 +57,16 @@ let usersStore: UserAccount[] = [...INITIAL_USERS];
 
 /**
  * Server-side authentication simulation.
- * Performs a STRICT EXACT character-for-character, case-sensitive check on SUPER_ADMIN_EMAIL & SUPER_ADMIN_PASSWORD ('Har_shit6959').
+ * Enforces Strict Role-Locking:
+ * - Super Admin (harshit071111@gmail.com) -> Super Admin Dashboard
+ * - Shopkeeper emails -> Shopkeeper Login ONLY (returns generic "Invalid email or password" on Customer Login)
+ * - Customer emails -> Customer Login ONLY (returns generic "Invalid email or password" on Shopkeeper Login)
  */
 export async function authenticateUser(
   emailInput: string,
   passwordInput: string,
   expectedLoginTab: 'customer' | 'shopkeeper'
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
-
-  console.log('[Auth Debug] Received raw email:', emailInput ? '[PROVIDED]' : '[EMPTY]');
-  console.log('[Auth Debug] Target Admin Email Check:', emailInput === SUPER_ADMIN_EMAIL);
 
   if (!emailInput || !passwordInput) {
     return { success: false, message: 'Please enter both email and password.' };
@@ -75,8 +75,6 @@ export async function authenticateUser(
   // 1. STRICT EXACT CASE-SENSITIVE SUPER ADMIN CHECK (No lowercasing or trimming)
   if (emailInput === SUPER_ADMIN_EMAIL) {
     const isPasswordMatch = passwordInput === SUPER_ADMIN_PASSWORD || passwordInput === 'HarshitPassword2026!';
-    console.log('[Auth Debug] Super Admin Email Match! Password match result:', isPasswordMatch);
-
     if (isPasswordMatch) {
       const adminUser: UserAccount = {
         id: 'usr-super-admin',
@@ -86,38 +84,55 @@ export async function authenticateUser(
         isActive: true,
         createdAt: Date.now()
       };
-      console.log('[Auth Debug] Super Admin Authenticated Successfully! Assigning role: super_admin');
       return { success: true, user: adminUser };
     } else {
-      console.warn('[Auth Debug] Super Admin Email matched, but Password case/character mismatched.');
       return { success: false, message: 'Invalid email or password.' };
     }
   }
 
-  // 2. Standard user lookup for normal customers and shopkeepers
   const normalizedEmail = emailInput.trim().toLowerCase();
+
+  // If a Super Admin email attempt is made with wrong casing or password on Customer tab -> Generic fail
+  if (normalizedEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
+    return { success: false, message: 'Invalid email or password.' };
+  }
+
+  // 2. Lookup existing registered user by normalized email
   let foundUser = usersStore.find(
     u => u.email.toLowerCase() === normalizedEmail && u.isActive
   );
 
-  // Auto-create shopkeeper test account
-  if (!foundUser && expectedLoginTab === 'shopkeeper') {
+  if (foundUser) {
+    // STRICT ROLE LOCKING: Reject with generic invalid credentials if login form tab does not match user's registered role
+    if (expectedLoginTab === 'customer' && foundUser.role !== 'customer') {
+      return { success: false, message: 'Invalid email or password.' };
+    }
+
+    if (expectedLoginTab === 'shopkeeper' && foundUser.role !== 'shopkeeper') {
+      return { success: false, message: 'Invalid email or password.' };
+    }
+
+    return { success: true, user: foundUser };
+  }
+
+  // 3. New Registration on first login if not found
+  if (expectedLoginTab === 'shopkeeper') {
     const shopName = normalizedEmail.split('@')[0].toUpperCase();
-    foundUser = {
+    const newShopkeeper: UserAccount = {
       id: `usr-s-${Date.now()}`,
       email: normalizedEmail,
       name: `${shopName} Owner`,
       role: 'shopkeeper',
-      shopId: 'shop-1',
+      shopId: `shop-${Date.now()}`,
       isActive: true,
       createdAt: Date.now()
     };
-    usersStore.push(foundUser);
+    usersStore.push(newShopkeeper);
+    return { success: true, user: newShopkeeper };
   }
 
-  // Auto-create customer test account
-  if (!foundUser && expectedLoginTab === 'customer') {
-    foundUser = {
+  if (expectedLoginTab === 'customer') {
+    const newCustomer: UserAccount = {
       id: `usr-c-${Date.now()}`,
       email: normalizedEmail,
       name: normalizedEmail.split('@')[0],
@@ -125,14 +140,11 @@ export async function authenticateUser(
       isActive: true,
       createdAt: Date.now()
     };
-    usersStore.push(foundUser);
+    usersStore.push(newCustomer);
+    return { success: true, user: newCustomer };
   }
 
-  if (foundUser.role === 'customer' && expectedLoginTab === 'shopkeeper') {
-    return { success: false, message: 'This account is registered as a Customer. Please log in using Customer Login.' };
-  }
-
-  return { success: true, user: foundUser };
+  return { success: false, message: 'Invalid email or password.' };
 }
 
 /** Register new customer */
@@ -147,6 +159,9 @@ export async function registerCustomer(
 
   let existing = usersStore.find(u => u.email.toLowerCase() === normalizedEmail);
   if (existing) {
+    if (existing.role !== 'customer') {
+      return { success: false, message: 'Email address already in use for a different role.' };
+    }
     return { success: true, user: existing };
   }
 
@@ -163,17 +178,26 @@ export async function registerCustomer(
   return { success: true, user: newUser };
 }
 
-/** Super Admin Action: Register new Shopkeeper */
+/** Super Admin Action: Register new Shopkeeper (Creates UNLIMITED shopkeeper accounts tagged role = 'shopkeeper') */
 export async function createShopkeeperAccount(
   name: string,
   email: string,
   shopId: string
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
   const normalizedEmail = email.trim().toLowerCase();
+
+  // Check if email already registered as customer
+  const existing = usersStore.find(u => u.email.toLowerCase() === normalizedEmail);
+  if (existing) {
+    if (existing.role === 'customer') {
+      return { success: false, message: `Email "${normalizedEmail}" is already registered as a Customer account. Please use a unique shopkeeper email.` };
+    }
+  }
+
   const newShopkeeper: UserAccount = {
-    id: `usr-s-${Date.now()}`,
+    id: `usr-s-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     email: normalizedEmail,
-    name,
+    name: name || `${shopId.toUpperCase()} Owner`,
     role: 'shopkeeper',
     shopId,
     isActive: true,
