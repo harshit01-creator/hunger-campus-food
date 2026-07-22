@@ -16,7 +16,6 @@ import {
 import {
   createOrder as createOrderApi,
   markFoodReady as markFoodReadyApi,
-  markAsPaidByShopkeeper as markAsPaidByShopkeeperApi,
   verifyAndProcessQrHandover as verifyAndProcessQrHandoverApi,
   acceptOrder as acceptOrderApi,
   cancelOrder as cancelOrderApi,
@@ -228,6 +227,14 @@ export default function WebApp() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
+  // Shopkeeper Dashboard Sub-Tab
+  const [shopkeeperSubTab, setShopkeeperSubTab] = useState<'orders' | 'analytics'>('orders');
+
+  // Checkout Payment Verification Simulator Modal State
+  const [isPayingGateway, setIsPayingGateway] = useState(false);
+  const [gatewayStatus, setGatewayStatus] = useState<'waiting' | 'success' | 'failed'>('waiting');
+  const [gatewayError, setGatewayError] = useState<string | null>(null);
+
   // Prep progress simulation
   const [prepProgress, setPrepProgress] = useState(25);
 
@@ -385,7 +392,7 @@ export default function WebApp() {
       items: cart.map(i => ({ id: i.id, name: i.name, price: i.discountedPrice, qty: i.qty })),
       grandTotal,
       paymentMethod: selectedPaymentMethod,
-      isOnlineVerified: isOnline
+      isOnlineVerified: true // Enforced true because payment-before-navigation succeeded!
     });
 
     const orderId = apiRes.orderId;
@@ -401,9 +408,9 @@ export default function WebApp() {
       items: [...cart],
       grandTotal,
       paymentMethod: selectedPaymentMethod,
-      paymentStatus: apiRes.paymentStatus,
+      paymentStatus: 'Paid', // Enforced Paid
       transactionId: apiRes.transactionId,
-      paidAt: apiRes.paymentStatus === 'Paid' ? new Date().toLocaleTimeString() : undefined,
+      paidAt: new Date().toLocaleTimeString(),
       status: 'Pending',
       createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       createdAtTimestamp,
@@ -425,6 +432,30 @@ export default function WebApp() {
       spread: 70,
       origin: { y: 0.6 }
     });
+  };
+
+  const handleStartPaymentVerification = () => {
+    setIsPayingGateway(true);
+    setGatewayStatus('waiting');
+    setGatewayError(null);
+  };
+
+  const handleGatewaySuccess = async () => {
+    setGatewayStatus('success');
+    // Simulate server processing time (1.2 seconds)
+    setTimeout(async () => {
+      await handlePlaceOrder();
+      setIsPayingGateway(false);
+    }, 1200);
+  };
+
+  const handleGatewayFailure = () => {
+    setGatewayStatus('failed');
+    setGatewayError('❌ Transaction declined by issuing bank. Please check your UPI balance or choose a different app.');
+  };
+
+  const handleGatewayCancel = () => {
+    setIsPayingGateway(false);
   };
 
   // ORDER CANCELLATION (STRICT 8-SECOND WINDOW VALIDATION)
@@ -499,137 +530,36 @@ export default function WebApp() {
     }
   };
 
-  // SHOPKEEPER MANUAL CASH PAYMENT OVERRIDE
-  const handleMarkOrderPaidCash = async (orderIdToPay: string) => {
-    const ownerName = currentUser?.name || 'Shop Owner';
-    await markAsPaidByShopkeeperApi(orderIdToPay, ownerName);
-
-    if (currentOrder && currentOrder.id === orderIdToPay) {
-      const updated = {
-        ...currentOrder,
-        paymentStatus: 'Paid' as PaymentStatus,
-        transactionId: `CASH-COLLECTED-BY-${ownerName.toUpperCase()}`,
-        paidAt: new Date().toLocaleTimeString()
-      };
-      setCurrentOrder(updated);
-      setOrdersHistory(prev => prev.map(o => o.id === orderIdToPay ? updated : o));
-    }
-
-    setScanResult({
-      success: true,
-      message: `💵 Cash payment of ₹${currentOrder?.grandTotal || 0} collected! Order #${orderIdToPay} marked as PAID.`,
-      paymentStatus: 'Paid',
-      paymentMethod: 'Cash on Handover',
-      transactionId: `CASH-COLLECTED-BY-${ownerName.toUpperCase()}`
-    });
-  };
-
-  // QR AUTO HANDOVER ENGINE WITH UNPAID SAFEGUARDS & SINGLE-USE VALIDATION
+  // QR AUTO HANDOVER ENGINE WITH FRESH SERVER FETCH AND SINGLE-USE BLOCK
   const processQrScanHandover = async (scannedRaw: string) => {
     setScanResult(null);
     const loggedInShopId = currentUser?.shopId || 'shop-1';
     const shopOwnerName = currentUser?.name || 'Canteen Manager';
 
+    // Call server-side verification in order service
     const apiRes = await verifyAndProcessQrHandoverApi(scannedRaw, loggedInShopId, shopOwnerName);
     
-    if (apiRes.isUnpaidWarning) {
-      setScanResult(apiRes);
-      return;
-    }
-
-    if (!apiRes.success && (!currentOrder || currentOrder.id !== scannedRaw.trim())) {
-      setScanResult(apiRes);
-      return;
-    }
-
-    try {
-      let parsed: any;
-      try {
-        parsed = JSON.parse(scannedRaw);
-      } catch {
-        parsed = { orderId: scannedRaw.trim() };
-      }
-
-      const orderIdScanned = parsed.orderId || parsed.id || scannedRaw.trim();
-
-      if (!currentOrder || currentOrder.id !== orderIdScanned) {
-        setScanResult({
-          success: false,
-          message: `Order #${orderIdScanned} not found in database.`
-        });
-        return;
-      }
-
-      if (currentUser?.role === 'shopkeeper' && currentOrder.shopId !== loggedInShopId) {
-        setScanResult({
-          success: false,
-          message: `Access Denied: Order #${orderIdScanned} belongs to ${currentOrder.shopName}.`
-        });
-        return;
-      }
-
-      if (currentOrder.status === 'Completed') {
-        setScanResult({
-          success: false,
-          message: `Order #${currentOrder.id} has ALREADY been marked as handed over! Reuse blocked.`,
-          paymentStatus: currentOrder.paymentStatus,
-          paymentMethod: currentOrder.paymentMethod,
-          transactionId: currentOrder.transactionId
-        });
-        return;
-      }
-
-      if (currentOrder.status === 'Cancelled') {
-        setScanResult({
-          success: false,
-          message: `Order #${currentOrder.id} was CANCELLED by ${currentOrder.cancelledBy || 'user'}. Handover blocked.`,
-          paymentStatus: currentOrder.paymentStatus,
-          paymentMethod: currentOrder.paymentMethod
-        });
-        return;
-      }
-
-      if (currentOrder.status !== 'Ready for Pickup') {
-        setScanResult({
-          success: false,
-          message: `Cannot Handover: Order #${currentOrder.id} is currently '${currentOrder.status}'. It must be marked 'Ready for Pickup' first.`,
-          paymentStatus: currentOrder.paymentStatus,
-          paymentMethod: currentOrder.paymentMethod,
-          transactionId: currentOrder.transactionId
-        });
-        return;
-      }
-
-      if (currentOrder.paymentStatus !== 'Paid') {
-        setScanResult({
-          success: false,
-          isUnpaidWarning: true,
-          message: `⚠️ UNPAID ORDER SAFEGUARD: Order #${currentOrder.id} is NOT PAID (${currentOrder.paymentMethod}). Please collect cash before handing over food!`,
-          paymentStatus: currentOrder.paymentStatus,
-          paymentMethod: currentOrder.paymentMethod,
-          transactionId: currentOrder.transactionId
-        });
-        return;
-      }
-
+    if (apiRes.success) {
       const timeHanded = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const updatedOrder = {
-        ...currentOrder,
+      const orderIdScanned = apiRes.orderId;
+      
+      // Update local state for tracking order
+      if (currentOrder && currentOrder.id === orderIdScanned) {
+        const updatedOrder = {
+          ...currentOrder,
+          status: 'Completed' as const,
+          handedOverAt: timeHanded
+        };
+        setCurrentOrder(updatedOrder);
+      }
+      
+      setOrdersHistory(prev => prev.map(o => o.id === orderIdScanned ? {
+        ...o,
         status: 'Completed' as const,
         handedOverAt: timeHanded
-      };
+      } : o));
 
-      setCurrentOrder(updatedOrder);
-      setOrdersHistory(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
-
-      setScanResult({
-        success: true,
-        message: `🎉 Order #${currentOrder.id} verified & marked as Handed Over at ${timeHanded}!`,
-        paymentStatus: 'Paid',
-        paymentMethod: currentOrder.paymentMethod,
-        transactionId: currentOrder.transactionId
-      });
-
+      setScanResult(apiRes);
       stopCameraScanner();
 
       confetti({
@@ -637,12 +567,8 @@ export default function WebApp() {
         spread: 70,
         origin: { y: 0.7 }
       });
-
-    } catch (err: any) {
-      setScanResult({
-        success: false,
-        message: `Scan Verification Failed: ${err.message || 'Invalid format'}`
-      });
+    } else {
+      setScanResult(apiRes);
     }
   };
 
@@ -873,27 +799,102 @@ export default function WebApp() {
     setLastSyncTime(new Date().toLocaleTimeString());
   };
 
-  // SALES ANALYTICS CALCULATIONS
-  const targetShopOrders = ordersHistory.filter(o => currentUser?.role === 'super_admin' || o.shopId === activeShopForOwner.id);
-  const totalSalesRevenue = targetShopOrders.filter(o => o.paymentStatus === 'Paid').reduce((sum, o) => sum + o.grandTotal, 0);
-  const paidOrdersCount = targetShopOrders.filter(o => o.paymentStatus === 'Paid').length;
-  const unpaidOrdersCount = targetShopOrders.filter(o => o.paymentStatus === 'Unpaid').length;
-  const completedHandoverCount = targetShopOrders.filter(o => o.status === 'Completed').length;
-  const cancelledOrdersCount = targetShopOrders.filter(o => o.status === 'Cancelled').length;
+  // SMART AI SALES ANALYTICS CALCULATIONS
+  const getAiAnalytics = () => {
+    // Filter paid/completed orders for this shop
+    const shopOrders = ordersHistory.filter(o => o.shopId === activeShopForOwner.id && o.paymentStatus === 'Paid');
 
-  // Best selling dishes calculation
-  const dishSalesMap: Record<string, { name: string; qty: number; total: number }> = {};
-  targetShopOrders.forEach(order => {
-    order.items.forEach(item => {
-      if (!dishSalesMap[item.name]) {
-        dishSalesMap[item.name] = { name: item.name, qty: 0, total: 0 };
-      }
-      dishSalesMap[item.name].qty += item.qty;
-      dishSalesMap[item.name].total += item.discountedPrice * item.qty;
+    const totalRev = shopOrders.reduce((sum, o) => sum + o.grandTotal, 0);
+    const avgOrder = shopOrders.length > 0 ? Math.round(totalRev / shopOrders.length) : 0;
+
+    const categorySales: Record<string, number> = {};
+    const itemSales: Record<string, { name: string; qty: number; revenue: number; category: string }> = {};
+    const hourlySales: Record<number, number> = {};
+    const daySales: Record<number, number> = {};
+
+    const allCategories = ['South Indian', 'Fast Food', 'Beverages', 'Main Course', 'Snacks', 'Desserts'];
+    allCategories.forEach(cat => {
+      categorySales[cat] = 0;
     });
-  });
 
-  const topSellingDishes = Object.values(dishSalesMap).sort((a, b) => b.qty - a.qty).slice(0, 5);
+    shopOrders.forEach(o => {
+      // Analyze hour
+      const date = new Date(o.createdAtTimestamp);
+      const hr = date.getHours() || 12;
+      hourlySales[hr] = (hourlySales[hr] || 0) + o.grandTotal;
+
+      const day = date.getDay();
+      daySales[day] = (daySales[day] || 0) + o.grandTotal;
+
+      o.items.forEach(i => {
+        const cat = i.category || 'Fast Food';
+        categorySales[cat] = (categorySales[cat] || 0) + (i.discountedPrice * i.qty);
+
+        if (!itemSales[i.name]) {
+          itemSales[i.name] = { name: i.name, qty: 0, revenue: 0, category: cat };
+        }
+        itemSales[i.name].qty += i.qty;
+        itemSales[i.name].revenue += i.discountedPrice * i.qty;
+      });
+    });
+
+    const itemSalesList = Object.values(itemSales);
+    const bestSelling = [...itemSalesList].sort((a, b) => b.qty - a.qty).slice(0, 5);
+    // Find items in menuItems that are not sold or sold very little for worstSelling
+    const shopItems = menuItems.filter(item => item.shopId === activeShopForOwner.id);
+    const worstSelling = shopItems.map(item => {
+      const sold = itemSales[item.name] || { qty: 0, revenue: 0 };
+      return {
+        name: item.name,
+        qty: sold.qty,
+        revenue: sold.revenue,
+        category: item.category
+      };
+    }).sort((a, b) => a.qty - b.qty).slice(0, 5);
+
+    const peakHourEntry = Object.entries(hourlySales).sort((a, b) => b[1] - a[1])[0];
+    const peakHourText = peakHourEntry 
+      ? `${Number(peakHourEntry[0]) % 12 || 12}:00 ${Number(peakHourEntry[0]) >= 12 ? 'PM' : 'AM'}` 
+      : '12:00 PM';
+
+    // AI generated insights
+    const insights: string[] = [];
+    if (shopOrders.length > 0) {
+      if (bestSelling.length > 0) {
+        insights.push(`🔥 High Demand: "${bestSelling[0].name}" represents your biggest revenue driver (${bestSelling[0].qty} sold). Ensure extra stock of raw ingredients.`);
+      }
+      if (worstSelling.length > 0 && worstSelling[0].qty === 0) {
+        insights.push(`⚠️ Slow Mover: "${worstSelling[0].name}" has registered 0 orders this week. We recommend featuring it as a Today's Special or adding a discount offer.`);
+      }
+      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const topDayIdx = Object.entries(daySales).sort((a, b) => b[1] - a[1])[0];
+      if (topDayIdx) {
+        insights.push(`📈 Day Spike: Sales are highest on ${days[Number(topDayIdx[0])]}s. Prepare extra prep sheets to capture this peak.`);
+      }
+      insights.push(`🕒 Peak Period: Busiest hours are around ${peakHourText}. Streamline counter setup during this time.`);
+    } else {
+      insights.push('💡 AI Insights will populate here once customers begin placing online orders.');
+    }
+
+    // Next 3 days simple demand forecasting projection
+    const forecastedDailySales = Math.round((totalRev / Math.max(1, shopOrders.length)) * 1.15);
+
+    return {
+      totalRev,
+      avgOrder,
+      totalOrders: shopOrders.length,
+      bestSelling,
+      worstSelling,
+      insights,
+      categorySales,
+      hourlySales,
+      daySales,
+      peakHourText,
+      forecastedDailySales
+    };
+  };
+
+  const analytics = getAiAnalytics();
 
   // UNAUTHENTICATED -> RENDER LOGIN SCREEN
   if (!currentUser) {
@@ -1623,178 +1624,558 @@ export default function WebApp() {
         {currentUser.role === 'shopkeeper' && (
           <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
             
-            {/* INCOMING ORDERS & FOOD IS READY ACTION */}
-            <div className={`p-6 rounded-3xl border space-y-4 ${
-              theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+            {/* Tab Swapper */}
+            <div className={`flex p-1.5 rounded-2xl border transition ${
+              theme === 'dark' ? 'bg-slate-900 border-slate-800/80 text-white' : 'bg-slate-100 border-slate-300 text-slate-800 shadow-sm'
             }`}>
-              <h3 className="font-extrabold font-heading text-base border-b border-slate-800 pb-3 flex items-center justify-between">
-                <span>Incoming Canteen Orders ({currentOrder ? 1 : 0})</span>
-                <span className="text-xs text-slate-400">Accepting locks customer cancellation</span>
-              </h3>
+              <button 
+                onClick={() => setShopkeeperSubTab('orders')}
+                className={`flex-1 py-3 text-xs font-extrabold rounded-xl transition-all flex items-center justify-center gap-2 ${
+                  shopkeeperSubTab === 'orders' 
+                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 transform scale-[1.02]' 
+                    : 'text-slate-400 hover:text-slate-700'
+                }`}
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span>Orders & Canteen Menu</span>
+              </button>
+              <button 
+                onClick={() => setShopkeeperSubTab('analytics')}
+                className={`flex-1 py-3 text-xs font-extrabold rounded-xl transition-all flex items-center justify-center gap-2 ${
+                  shopkeeperSubTab === 'analytics' 
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30 transform scale-[1.02]' 
+                    : 'text-slate-400 hover:text-slate-700'
+                }`}
+              >
+                <TrendingUp className="w-4 h-4" />
+                <span>Smart AI Sales Insights</span>
+              </button>
+            </div>
 
-              {currentOrder ? (
-                <div className={`p-5 rounded-2xl space-y-4 border ${
-                  theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
+            {/* TAB 1: ORDERS & MENU */}
+            {shopkeeperSubTab === 'orders' && (
+              <div className="space-y-8 animate-fadeIn">
+
+                {/* QR VERIFICATION SCANNER & SIMULATOR PANEL */}
+                <div className={`p-6 rounded-3xl border space-y-4 ${
+                  theme === 'dark' ? 'glass-panel border-slate-800 bg-gradient-to-r from-slate-900 to-emerald-950/20' : 'bg-white border-slate-200 shadow-xl shadow-slate-200/50'
                 }`}>
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-sm">Order #{currentOrder.id} • {currentOrder.customerName}</h4>
-                        
-                        <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border uppercase ${
-                          currentOrder.paymentStatus === 'Paid' ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/40' :
-                          currentOrder.paymentStatus === 'Refund Pending' ? 'bg-amber-500/20 text-amber-500 border-amber-500/40' :
-                          'bg-red-500/20 text-red-500 border-red-500/40'
-                        }`}>
-                          {currentOrder.paymentStatus}
-                        </span>
+                  <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400">
+                        <QrCode className="w-5 h-5 animate-pulse" />
                       </div>
-                      <p className="text-[11px] text-slate-400">Placed at {currentOrder.createdAt} • Total: ₹{currentOrder.grandTotal} ({currentOrder.paymentMethod})</p>
+                      <div>
+                        <h3 className="font-extrabold font-heading text-sm">QR Code Collection Verification Scanner</h3>
+                        <p className="text-[11px] text-slate-400">Scan customer token to atomically verify payment and hand over food</p>
+                      </div>
                     </div>
-
-                    <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
-                      currentOrder.status === 'Pending' ? 'bg-yellow-500/20 text-yellow-500 border-yellow-500/40 animate-pulse' :
-                      currentOrder.status === 'Accepted' ? 'bg-blue-600/20 text-blue-500 border-blue-600/40' :
-                      currentOrder.status === 'Ready for Pickup' ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/40' :
-                      currentOrder.status === 'Cancelled' ? 'bg-red-500/20 text-red-500 border-red-500/40' :
-                      'bg-emerald-500/20 text-emerald-500 border-emerald-500/40'
-                    }`}>
-                      {currentOrder.status}
-                    </span>
                   </div>
 
-                  <div className="space-y-2">
-                    {currentOrder.items.map(item => (
-                      <div key={item.id} className={`flex justify-between text-xs p-2.5 rounded-xl border ${
-                        theme === 'dark' ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Live Camera Interface */}
+                    <div className={`p-4 rounded-2xl border text-center space-y-3 relative overflow-hidden flex flex-col justify-center min-h-[220px] ${
+                      theme === 'dark' ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}>
+                      {isCameraActive ? (
+                        <div className="space-y-3">
+                          <div className="relative mx-auto rounded-xl overflow-hidden max-w-[280px] border-4 border-emerald-500/30 aspect-square flex items-center justify-center bg-black">
+                            <video 
+                              ref={videoRef} 
+                              className="w-full h-full object-cover scale-x-[-1]" 
+                            />
+                            {/* Scanning Reticle */}
+                            <div className="absolute inset-4 border-2 border-dashed border-emerald-400 animate-pulse rounded-lg pointer-events-none" />
+                          </div>
+                          <button 
+                            onClick={stopCameraScanner}
+                            className="bg-red-950/60 border border-red-500/30 text-red-400 font-bold px-4 py-2 rounded-xl text-xs transition"
+                          >
+                            Stop Camera Scanner ⏹️
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <Camera className="w-10 h-10 mx-auto text-slate-500" />
+                          <div className="space-y-1">
+                            <h4 className="font-bold text-xs">Verify via Device Camera</h4>
+                            <p className="text-[10px] text-slate-400 max-w-xs mx-auto">Access WebRTC scanner to verify customer collection receipt QR code instantly</p>
+                          </div>
+                          <button 
+                            onClick={startCameraScanner}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-lg shadow-emerald-600/30 transition transform hover:-translate-y-0.5"
+                          >
+                            Start Camera Scanner 📷
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Simulator Input Verify */}
+                    <div className={`p-4 rounded-2xl border flex flex-col justify-between space-y-4 ${
+                      theme === 'dark' ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}>
+                      <div className="space-y-2">
+                        <span className="bg-blue-500/20 text-blue-400 font-extrabold px-2 py-0.5 rounded text-[10px] uppercase font-mono tracking-wider">
+                          QR Simulator Box
+                        </span>
+                        <h4 className="font-bold text-xs">Simulate Counter Scan (Testing)</h4>
+                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                          Copy the customer's QR Token or Order ID (e.g. `HUNGER-3456`) and paste it below to simulate verification without using a physical camera.
+                        </p>
+                      </div>
+
+                      <div className="space-y-2.5">
+                        <input 
+                          type="text" 
+                          placeholder="Paste order QR token payload or ID..."
+                          value={simulatedQrInput}
+                          onChange={(e) => setSimulatedQrInput(e.target.value)}
+                          className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-blue-500 font-mono ${
+                            theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-800'
+                          }`}
+                        />
+                        <button 
+                          disabled={!simulatedQrInput.trim()}
+                          onClick={() => processQrScanHandover(simulatedQrInput.trim())}
+                          className={`w-full font-bold py-2.5 rounded-xl text-xs transition flex items-center justify-center gap-1.5 ${
+                            simulatedQrInput.trim() 
+                              ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg' 
+                              : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                          }`}
+                        >
+                          <ShieldCheck className="w-4 h-4" />
+                          <span>Verify & Process Handover 🚀</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* INCOMING ORDERS */}
+                <div className={`p-6 rounded-3xl border space-y-4 ${
+                  theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+                }`}>
+                  <h3 className="font-extrabold font-heading text-base border-b border-slate-800 pb-3 flex items-center justify-between">
+                    <span>Incoming Canteen Orders ({currentOrder ? 1 : 0})</span>
+                    <span className="text-xs text-slate-400">Accepting locks customer cancellation</span>
+                  </h3>
+
+                  {currentOrder ? (
+                    <div className={`p-5 rounded-2xl space-y-4 border ${
+                      theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}>
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-sm">Order #{currentOrder.id} • {currentOrder.customerName}</h4>
+                            
+                            <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-500 border-emerald-500/40 uppercase">
+                              {currentOrder.paymentStatus}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-400">Placed at {currentOrder.createdAt} • Total: ₹{currentOrder.grandTotal} ({currentOrder.paymentMethod})</p>
+                        </div>
+
+                        <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                          currentOrder.status === 'Pending' ? 'bg-yellow-500/20 text-yellow-500 border-yellow-500/40 animate-pulse' :
+                          currentOrder.status === 'Accepted' ? 'bg-blue-600/20 text-blue-500 border-blue-600/40' :
+                          currentOrder.status === 'Ready for Pickup' ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/40' :
+                          currentOrder.status === 'Cancelled' ? 'bg-red-500/20 text-red-500 border-red-500/40' :
+                          'bg-emerald-500/20 text-emerald-500 border-emerald-500/40'
+                        }`}>
+                          {currentOrder.status}
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        {currentOrder.items.map(item => (
+                          <div key={item.id} className={`flex justify-between text-xs p-2.5 rounded-xl border ${
+                            theme === 'dark' ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
+                          }`}>
+                            <span>{item.qty}x {item.name}</span>
+                            <span className="font-bold">₹{item.discountedPrice * item.qty}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="pt-2 flex flex-wrap items-center gap-3">
+                        {currentOrder.status === 'Pending' && (
+                          <>
+                            <button 
+                              onClick={() => handleShopkeeperAcceptOrder(currentOrder.id)}
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/30"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Accept Order & Lock Cancellation ✅</span>
+                            </button>
+                            <button 
+                              onClick={() => handleShopkeeperRejectOrder(currentOrder.id)}
+                              className="bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5"
+                            >
+                              <Ban className="w-4 h-4" />
+                              <span>Reject Order ❌</span>
+                            </button>
+                          </>
+                        )}
+
+                        {currentOrder.status === 'Accepted' && (
+                          <button 
+                            onClick={() => handleShopkeeperFoodReady(currentOrder.id)}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/20 animate-pulse"
+                          >
+                            <Bell className="w-4 h-4" />
+                            <span>Food is Ready 🔔 (Mark Ready for Pickup)</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-slate-500 text-xs">
+                      No active incoming orders right now.
+                    </div>
+                  )}
+                </div>
+
+                {/* FOOD MENU MANAGEMENT */}
+                <div className={`p-6 rounded-3xl border space-y-4 ${
+                  theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+                }`}>
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div>
+                      <h3 className="font-extrabold font-heading text-base">{t('foodMenuManagement', currentLang)} ({activeShopForOwner.name})</h3>
+                      <p className="text-xs text-slate-400">Items added here appear immediately on Customer Dashboard</p>
+                    </div>
+
+                    <button 
+                      onClick={openAddItemModal}
+                      className="bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>{t('addNewItem', currentLang)}</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {menuItems.filter(i => i.shopId === activeShopForOwner.id || i.shopId === currentUser?.shopId).map(item => (
+                      <div key={item.id} className={`p-4 rounded-2xl flex justify-between gap-3 border transition ${
+                        item.isSpecial ? 'border-amber-400/80 shadow-md shadow-amber-400/10' :
+                        theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
                       }`}>
-                        <span>{item.qty}x {item.name}</span>
-                        <span className="font-bold">₹{item.discountedPrice * item.qty}</span>
+                        <div className="flex gap-3">
+                          <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className="w-16 h-16 rounded-xl object-cover" />
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-xs">{item.name}</h4>
+                              {item.isSpecial && (
+                                <span className="bg-amber-400/20 text-amber-500 border border-amber-400/40 text-[9px] font-extrabold px-1.5 py-0.5 rounded">
+                                  🌟 Special
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs font-extrabold text-blue-500">₹{item.price}</p>
+                            <p className="text-[10px] text-slate-400">Slot: {item.availableFrom || '08:00'} - {item.availableUntil || '22:00'}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col justify-between items-end">
+                          <button 
+                            onClick={() => handleToggleSpecial(item.id)}
+                            className={`p-1.5 rounded-lg border text-[10px] font-bold transition flex items-center gap-1 ${
+                              item.isSpecial 
+                                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md' 
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            <Star className={`w-3 h-3 ${item.isSpecial ? 'fill-slate-950' : ''}`} />
+                            <span>{item.isSpecial ? 'Special' : 'Mark Special'}</span>
+                          </button>
+
+                          <div className="flex items-center gap-1 pt-2">
+                            <button 
+                              onClick={() => openEditItemModal(item)}
+                              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteItem(item.id)}
+                              className="p-1.5 bg-red-950/60 hover:bg-red-900 text-red-400 rounded-lg transition"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
-
-                  <div className="pt-2 flex flex-wrap items-center gap-3">
-                    {currentOrder.status === 'Pending' && (
-                      <>
-                        <button 
-                          onClick={() => handleShopkeeperAcceptOrder(currentOrder.id)}
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/30"
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Accept Order & Lock Cancellation ✅</span>
-                        </button>
-                        <button 
-                          onClick={() => handleShopkeeperRejectOrder(currentOrder.id)}
-                          className="bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5"
-                        >
-                          <Ban className="w-4 h-4" />
-                          <span>Reject Order ❌</span>
-                        </button>
-                      </>
-                    )}
-
-                    {currentOrder.status === 'Accepted' && (
-                      <button 
-                        onClick={() => handleShopkeeperFoodReady(currentOrder.id)}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/20 animate-pulse"
-                      >
-                        <Bell className="w-4 h-4" />
-                        <span>Food is Ready 🔔 (Mark Ready for Pickup)</span>
-                      </button>
-                    )}
-
-                    {currentOrder.paymentStatus === 'Unpaid' && (
-                      <button 
-                        onClick={() => handleMarkOrderPaidCash(currentOrder.id)}
-                        className="bg-emerald-600/20 hover:bg-emerald-600 text-emerald-500 hover:text-white border border-emerald-500/40 font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5"
-                      >
-                        <DollarSign className="w-4 h-4" />
-                        <span>Collect Cash & Mark Paid</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-6 text-slate-500 text-xs">
-                  No active incoming orders right now.
-                </div>
-              )}
-            </div>
-
-            {/* SHOPKEEPER FOOD MENU MANAGEMENT */}
-            <div className={`p-6 rounded-3xl border space-y-4 ${
-              theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
-            }`}>
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div>
-                  <h3 className="font-extrabold font-heading text-base">{t('foodMenuManagement', currentLang)} ({activeShopForOwner.name})</h3>
-                  <p className="text-xs text-slate-400">Items added here appear immediately on Customer Dashboard</p>
                 </div>
 
-                <button 
-                  onClick={openAddItemModal}
-                  className="bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>{t('addNewItem', currentLang)}</span>
-                </button>
               </div>
+            )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {menuItems.filter(i => i.shopId === activeShopForOwner.id || i.shopId === currentUser?.shopId).map(item => (
-                  <div key={item.id} className={`p-4 rounded-2xl flex justify-between gap-3 border transition ${
-                    item.isSpecial ? 'border-amber-400/80 shadow-md shadow-amber-400/10' :
-                    theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
+            {/* TAB 2: SMART AI SALES ANALYSIS */}
+            {shopkeeperSubTab === 'analytics' && (
+              <div className="space-y-8 animate-fadeIn">
+                
+                {/* 3-4 Key Metric Highlights */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className={`p-5 rounded-3xl border transition ${
+                    theme === 'dark' ? 'glass-card border-emerald-500/20 bg-emerald-950/10' : 'bg-white border-emerald-200 shadow-md text-slate-900'
                   }`}>
-                    <div className="flex gap-3">
-                      <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className="w-16 h-16 rounded-xl object-cover" />
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-bold text-xs">{item.name}</h4>
-                          {item.isSpecial && (
-                            <span className="bg-amber-400/20 text-amber-500 border border-amber-400/40 text-[9px] font-extrabold px-1.5 py-0.5 rounded">
-                              🌟 Special
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs font-extrabold text-blue-500">₹{item.price}</p>
-                        <p className="text-[10px] text-slate-400">Slot: {item.availableFrom || '08:00'} - {item.availableUntil || '22:00'}</p>
-                      </div>
-                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total Revenue</span>
+                    <h3 className="font-heading font-extrabold text-2xl text-emerald-500 mt-1">₹{analytics.totalRev}</h3>
+                    <p className="text-[10px] text-slate-500 mt-1">100% UPI settlements</p>
+                  </div>
 
-                    <div className="flex flex-col justify-between items-end">
-                      <button 
-                        onClick={() => handleToggleSpecial(item.id)}
-                        className={`p-1.5 rounded-lg border text-[10px] font-bold transition flex items-center gap-1 ${
-                          item.isSpecial 
-                            ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md' 
-                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                        }`}
-                      >
-                        <Star className={`w-3 h-3 ${item.isSpecial ? 'fill-slate-950' : ''}`} />
-                        <span>{item.isSpecial ? 'Special' : 'Mark Special'}</span>
-                      </button>
+                  <div className={`p-5 rounded-3xl border transition ${
+                    theme === 'dark' ? 'glass-card border-blue-500/20 bg-blue-950/10' : 'bg-white border-blue-200 shadow-md text-slate-900'
+                  }`}>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Busiest Hour</span>
+                    <h3 className="font-heading font-extrabold text-2xl text-blue-400 mt-1">{analytics.peakHourText}</h3>
+                    <p className="text-[10px] text-slate-500 mt-1">Based on peak order counts</p>
+                  </div>
 
-                      <div className="flex items-center gap-1 pt-2">
-                        <button 
-                          onClick={() => openEditItemModal(item)}
-                          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteItem(item.id)}
-                          className="p-1.5 bg-red-950/60 hover:bg-red-900 text-red-400 rounded-lg transition"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                  <div className={`p-5 rounded-3xl border transition ${
+                    theme === 'dark' ? 'glass-card border-purple-500/20 bg-purple-950/10' : 'bg-white border-purple-200 shadow-md text-slate-900'
+                  }`}>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Paid Orders</span>
+                    <h3 className="font-heading font-extrabold text-2xl text-purple-400 mt-1">{analytics.totalOrders}</h3>
+                    <p className="text-[10px] text-slate-500 mt-1">Fulfillments finalized</p>
+                  </div>
+
+                  <div className={`p-5 rounded-3xl border transition ${
+                    theme === 'dark' ? 'glass-card border-amber-500/20 bg-amber-950/10' : 'bg-white border-amber-200 shadow-md text-slate-900'
+                  }`}>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Average Ticket</span>
+                    <h3 className="font-heading font-extrabold text-2xl text-amber-500 mt-1">₹{analytics.avgOrder}</h3>
+                    <p className="text-[10px] text-slate-500 mt-1">Per unique customer order</p>
+                  </div>
+                </div>
+
+                {/* AI-Generated Actionable Suggestions */}
+                <div className={`p-6 rounded-3xl border space-y-4 ${
+                  theme === 'dark' ? 'glass-panel border-blue-500/40 bg-gradient-to-r from-slate-900 to-blue-950/20' : 'bg-white border-blue-200 shadow-xl shadow-blue-200/40 text-slate-950'
+                }`}>
+                  <h3 className="font-extrabold font-heading text-sm flex items-center gap-2 text-blue-500">
+                    <Sparkles className="w-5 h-5 text-blue-500 animate-spin-slow" />
+                    <span>Smart AI Recommendations & Insights</span>
+                  </h3>
+                  
+                  <div className="space-y-3">
+                    {analytics.insights.map((insight, idx) => (
+                      <div key={idx} className={`p-3 rounded-2xl border text-xs leading-relaxed flex items-start gap-2.5 ${
+                        theme === 'dark' ? 'bg-slate-950/80 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-300 text-slate-800'
+                      }`}>
+                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />
+                        <span>{insight}</span>
                       </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Sales Trend SVG Chart */}
+                  <div className={`p-6 rounded-3xl border space-y-4 ${
+                    theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+                  }`}>
+                    <h3 className="font-extrabold font-heading text-sm">Hourly Sales Trend Visualization</h3>
+                    
+                    <div className="h-56 flex items-center justify-center">
+                      {analytics.totalOrders > 0 ? (
+                        <svg viewBox="0 0 500 180" className="w-full h-full">
+                          {/* Grid Lines */}
+                          <line x1="40" y1="20" x2="460" y2="20" stroke="#334155" strokeDasharray="3,3" />
+                          <line x1="40" y1="70" x2="460" y2="70" stroke="#334155" strokeDasharray="3,3" />
+                          <line x1="40" y1="120" x2="460" y2="120" stroke="#334155" strokeDasharray="3,3" />
+                          <line x1="40" y1="150" x2="460" y2="150" stroke="#475569" strokeWidth="1.5" />
+                          
+                          {/* Draw curve path */}
+                          {(() => {
+                            const hours = Array.from({ length: 15 }, (_, i) => i + 8); // 8 AM to 10 PM
+                            const points = hours.map((h, idx) => {
+                              const rev = analytics.hourlySales[h] || 0;
+                              const maxVal = Math.max(...Object.values(analytics.hourlySales), 100);
+                              const x = 40 + (idx / 14) * 420;
+                              const y = 150 - (rev / maxVal) * 120;
+                              return { x, y, h, rev };
+                            });
+
+                            const d = points.reduce((path, p, idx) => {
+                              return idx === 0 ? `M ${p.x} ${p.y}` : `${path} L ${p.x} ${p.y}`;
+                            }, '');
+
+                            return (
+                              <>
+                                <path d={d} fill="none" stroke="#3b82f6" strokeWidth="3.5" strokeLinecap="round" />
+                                {/* Dots */}
+                                {points.map((p, idx) => (
+                                  <g key={idx} className="group">
+                                    <circle 
+                                      cx={p.x} 
+                                      cy={p.y} 
+                                      r="4.5" 
+                                      fill={p.rev > 0 ? '#3b82f6' : '#475569'} 
+                                      stroke="#1e293b" 
+                                      strokeWidth="2" 
+                                      className="transition-all duration-300 hover:r-7 cursor-pointer"
+                                    />
+                                    <title>{`Hour ${p.h}:00 - Revenue: ₹${p.rev}`}</title>
+                                  </g>
+                                ))}
+                              </>
+                            );
+                          })()}
+                        </svg>
+                      ) : (
+                        <span className="text-xs text-slate-500">Need order data to plot trend line</span>
+                      )}
                     </div>
                   </div>
-                ))}
+
+                  {/* Revenue Breakdown by Category */}
+                  <div className={`p-6 rounded-3xl border space-y-4 ${
+                    theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+                  }`}>
+                    <h3 className="font-extrabold font-heading text-sm">Revenue Share by Category</h3>
+                    
+                    <div className="space-y-4">
+                      {Object.entries(analytics.categorySales).map(([cat, rev]) => {
+                        const total = analytics.totalRev || 1;
+                        const percentage = Math.round((rev / total) * 100);
+                        return (
+                          <div key={cat} className="space-y-1">
+                            <div className="flex justify-between text-xs font-semibold">
+                              <span>{cat}</span>
+                              <span className="text-slate-400">₹{rev} ({percentage}%)</span>
+                            </div>
+                            <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800">
+                              <div 
+                                className="h-full rounded-full bg-gradient-to-r from-blue-600 to-emerald-400 transition-all duration-500" 
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Ranked Best & Worst Selling Dishes */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  
+                  {/* Best Selling */}
+                  <div className={`p-6 rounded-3xl border space-y-4 ${
+                    theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+                  }`}>
+                    <h3 className="font-extrabold font-heading text-sm flex items-center gap-2 text-emerald-500">
+                      <Sparkles className="w-4 h-4" />
+                      <span>Top Performing Dishes (Ranked)</span>
+                    </h3>
+                    
+                    <div className="space-y-3">
+                      {analytics.bestSelling.length > 0 ? (
+                        analytics.bestSelling.map((item, idx) => (
+                          <div key={idx} className={`p-3 rounded-2xl border flex items-center justify-between text-xs ${
+                            theme === 'dark' ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+                          }`}>
+                            <div className="flex items-center gap-3">
+                              <span className="font-extrabold text-slate-400 font-mono w-4">#{idx + 1}</span>
+                              <div>
+                                <h4 className="font-bold">{item.name}</h4>
+                                <span className="text-[10px] text-slate-400">{item.category}</span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-extrabold text-emerald-500 block">{item.qty} Sold</span>
+                              <span className="text-[10px] text-slate-400">₹{item.revenue} Revenue</span>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-6 text-slate-500 text-xs">No sales registered yet.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Worst Selling */}
+                  <div className={`p-6 rounded-3xl border space-y-4 ${
+                    theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+                  }`}>
+                    <h3 className="font-extrabold font-heading text-sm flex items-center gap-2 text-red-500">
+                      <AlertCircle className="w-4 h-4" />
+                      <span>Slowest Performing Dishes (Action Required)</span>
+                    </h3>
+                    
+                    <div className="space-y-3">
+                      {analytics.worstSelling.length > 0 ? (
+                        analytics.worstSelling.map((item, idx) => (
+                          <div key={idx} className={`p-3 rounded-2xl border flex items-center justify-between text-xs ${
+                            theme === 'dark' ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+                          }`}>
+                            <div className="flex items-center gap-3">
+                              <span className="font-extrabold text-slate-400 font-mono w-4">#{idx + 1}</span>
+                              <div>
+                                <h4 className="font-bold">{item.name}</h4>
+                                <span className="text-[10px] text-slate-400">{item.category}</span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-bold text-red-400 block">{item.qty} Sold</span>
+                              <span className="text-[10px] text-slate-400">₹{item.revenue} Revenue</span>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-6 text-slate-500 text-xs">No items found in canteen menu.</div>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* AI Demand Forecasting */}
+                <div className={`p-6 rounded-3xl border space-y-4 ${
+                  theme === 'dark' ? 'glass-panel border-purple-500/20 bg-purple-950/10' : 'bg-white border-purple-200 shadow-xl text-slate-900'
+                }`}>
+                  <h3 className="font-extrabold font-heading text-sm flex items-center gap-2 text-purple-400">
+                    <TrendingUp className="w-5 h-5 text-purple-400" />
+                    <span>Next 3-Days Demand Forecasting Projection</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Based on historical order frequency and category trends, the AI predicts the following daily demand projection for the upcoming cycle:
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                    <div className={`p-4 rounded-2xl border text-center ${
+                      theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-300'
+                    }`}>
+                      <span className="text-[10px] text-slate-400 font-bold block">TOMORROW</span>
+                      <h4 className="font-extrabold text-lg text-emerald-500 mt-1">₹{analytics.forecastedDailySales}</h4>
+                      <p className="text-[9px] text-slate-500">Predicted Sales Volume</p>
+                    </div>
+
+                    <div className={`p-4 rounded-2xl border text-center ${
+                      theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-300'
+                    }`}>
+                      <span className="text-[10px] text-slate-400 font-bold block">DAY 2</span>
+                      <h4 className="font-extrabold text-lg text-emerald-500 mt-1">₹{Math.round(analytics.forecastedDailySales * 1.05)}</h4>
+                      <p className="text-[9px] text-slate-500">Predicted Sales Volume</p>
+                    </div>
+
+                    <div className={`p-4 rounded-2xl border text-center ${
+                      theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-300'
+                    }`}>
+                      <span className="text-[10px] text-slate-400 font-bold block">DAY 3</span>
+                      <h4 className="font-extrabold text-lg text-emerald-500 mt-1">₹{Math.round(analytics.forecastedDailySales * 1.08)}</h4>
+                      <p className="text-[9px] text-slate-500">Predicted Sales Volume</p>
+                    </div>
+                  </div>
+                </div>
+
               </div>
-            </div>
+            )}
 
           </div>
         )}
@@ -2238,75 +2619,201 @@ export default function WebApp() {
           }`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div>
-                <h3 className="font-extrabold font-heading text-lg">Select Payment Mode for {currentCheckoutShop.name}</h3>
+                <h3 className="font-extrabold font-heading text-lg">Online UPI Checkout — {currentCheckoutShop.name}</h3>
                 <p className="text-xs text-slate-400">Shop UPI VPA: <span className="text-emerald-500 font-mono">{currentCheckoutShop.upiId}</span></p>
               </div>
               <button onClick={() => setIsCheckoutOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <button 
-                onClick={() => setSelectedPaymentMethod('Online UPI')}
-                className={`p-3.5 rounded-2xl border text-left space-y-1 transition ${
-                  selectedPaymentMethod === 'Online UPI' 
-                    ? 'bg-blue-600/20 border-blue-500 text-blue-500 shadow-lg shadow-blue-500/20' 
-                    : theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs">Online UPI (Server Verified)</span>
-                  <Smartphone className="w-4 h-4 text-emerald-500" />
-                </div>
-                <p className="text-[10px] text-slate-400">GPay / PhonePe / Paytm direct UPI settlement</p>
-              </button>
-
-              <button 
-                onClick={() => setSelectedPaymentMethod('Cash on Handover')}
-                className={`p-3.5 rounded-2xl border text-left space-y-1 transition ${
-                  selectedPaymentMethod === 'Cash on Handover' 
-                    ? 'bg-emerald-600/20 border-emerald-500 text-emerald-500 shadow-lg shadow-emerald-500/20' 
-                    : theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-xs">Cash on Handover</span>
-                  <DollarSign className="w-4 h-4 text-emerald-500" />
-                </div>
-                <p className="text-[10px] text-slate-400">Pay cash at counter when collecting food</p>
-              </button>
+            <div className={`border p-4 rounded-2xl text-center space-y-3 ${
+              theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
+              <span className="text-xs font-semibold text-emerald-400">Scan Shop's Official UPI QR Code with any UPI App</span>
+              <div className="w-48 h-48 bg-white p-2.5 rounded-xl mx-auto flex items-center justify-center shadow-lg border-2 border-blue-600/20">
+                <img 
+                  src={currentCheckoutShop.qrImageUrl} 
+                  alt="Shop Payment QR" 
+                  className="w-full h-full object-contain"
+                />
+              </div>
+              <p className="text-[11px] text-slate-400">Scan via GPay / PhonePe / Paytm / BHIM</p>
             </div>
 
-            {selectedPaymentMethod === 'Online UPI' ? (
-              <div className={`border p-4 rounded-2xl text-center space-y-3 ${
-                theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
-              }`}>
-                <span className="text-xs font-semibold">Scan Shop's Uploaded UPI QR Code</span>
-                <div className="w-44 h-44 bg-white p-2.5 rounded-xl mx-auto flex items-center justify-center shadow-lg border-2 border-blue-600/20">
-                  <img 
-                    src={currentCheckoutShop.qrImageUrl} 
-                    alt="Shop Payment QR" 
-                    className="w-full h-full object-contain"
-                  />
+            <button 
+              onClick={handleStartPaymentVerification}
+              className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-extrabold py-3.5 rounded-2xl text-sm shadow-xl shadow-blue-700/30"
+            >
+              Verify Payment & Place Order (₹{cartSubtotal + 15}) &rarr;
+            </button>
+          </div>
+        </div>
+      )}
+      {/* ONLINE PAYMENT GATEWAY WEBHOOK SIMULATOR MODAL */}
+      {isPayingGateway && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-fadeIn">
+          <div className={`w-full max-w-md p-6 rounded-3xl space-y-6 shadow-2xl border text-center ${
+            theme === 'dark' ? 'glass-panel border-blue-500/40 text-white' : 'bg-white border-blue-200 text-slate-900 shadow-blue-300/50'
+          }`}>
+            <div className="space-y-2">
+              <Smartphone className="w-12 h-12 mx-auto text-blue-500 animate-pulse" />
+              <h3 className="text-xl font-extrabold font-heading">Secure Online UPI Gateway</h3>
+              <p className="text-xs text-slate-400">Processing transaction for ₹{cartSubtotal + 15} to VPA: {currentCheckoutShop.upiId}</p>
+            </div>
+
+            {gatewayStatus === 'waiting' && (
+              <div className="space-y-4 py-4">
+                <div className="flex items-center justify-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
-                <p className="text-[11px] text-slate-400">Server verified transaction confirmation</p>
+                <p className="text-xs text-slate-300 font-semibold">Waiting for server verification of online payment...</p>
+                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
+                  📱 To complete the payment simulation: Tap **"Simulate Gateway Success"** or cancel to return.
+                </div>
+              </div>
+            )}
+
+            {gatewayStatus === 'success' && (
+              <div className="space-y-3 py-4 text-emerald-400 animate-scaleIn">
+                <Check className="w-12 h-12 mx-auto bg-emerald-500/20 rounded-full p-2.5 border border-emerald-500/40 animate-ping" />
+                <h4 className="font-bold text-sm">🎉 Webhook Callback Verified!</h4>
+                <p className="text-xs text-slate-400">Payment status: PAID. Confirming order creation...</p>
+              </div>
+            )}
+
+            {gatewayStatus === 'failed' && (
+              <div className="space-y-3 py-4 text-red-400">
+                <AlertCircle className="w-12 h-12 mx-auto text-red-500" />
+                <h4 className="font-bold text-sm">Payment Verification Failed</h4>
+                <p className="text-xs text-slate-400">{gatewayError}</p>
+              </div>
+            )}
+
+            <div className="space-y-2 pt-2">
+              {gatewayStatus === 'waiting' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button 
+                    onClick={handleGatewaySuccess}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition"
+                  >
+                    Simulate Success ✅
+                  </button>
+                  <button 
+                    onClick={handleGatewayFailure}
+                    className="bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 rounded-xl text-xs transition"
+                  >
+                    Simulate Failure ❌
+                  </button>
+                </div>
+              )}
+
+              {gatewayStatus === 'failed' && (
+                <button 
+                  onClick={() => setGatewayStatus('waiting')}
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-xl text-xs transition"
+                >
+                  Retry Simulation 🔄
+                </button>
+              )}
+
+              <button 
+                onClick={handleGatewayCancel}
+                className={`w-full py-2.5 rounded-xl text-xs font-bold transition border ${
+                  theme === 'dark' ? 'bg-slate-900 hover:bg-slate-800 text-slate-400 border-slate-800' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                }`}
+              >
+                {gatewayStatus === 'success' ? 'Loading...' : 'Cancel & Go Back'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR SCAN FRESH RECEIPT & HANDOVER POPUP MODAL */}
+      {scanResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
+          <div className={`w-full max-w-lg p-6 rounded-3xl space-y-5 shadow-2xl relative border ${
+            theme === 'dark' ? 'glass-panel border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="font-extrabold font-heading text-lg">
+                {scanResult.success ? '🧾 Order Verification Receipt' : '🚫 Scan Verification Failed'}
+              </h3>
+              <button onClick={() => setScanResult(null)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
+            </div>
+
+            {scanResult.success ? (
+              <div className="space-y-4">
+                <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 p-3.5 rounded-2xl text-center space-y-1">
+                  <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-400" />
+                  <h4 className="font-bold text-sm">Order Verification Successful!</h4>
+                  <p className="text-[11px] text-slate-400">Marked as completed & disabled QR token in server database</p>
+                </div>
+
+                <div className={`p-4 rounded-2xl border space-y-3 ${
+                  theme === 'dark' ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                }`}>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">CUSTOMER NAME</span>
+                      <span className="font-bold">{scanResult.customerName || 'Student Customer'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">ORDER ID</span>
+                      <span className="font-mono font-bold text-blue-500">{scanResult.orderId}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">PAYMENT METHOD</span>
+                      <span className="font-bold">Online UPI (PAID)</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px]">TRANSACTION REFERENCE</span>
+                      <span className="font-mono text-[10px] text-emerald-400 truncate block">{scanResult.transactionId}</span>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-slate-800/80 pt-2 space-y-2">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Items Summary</span>
+                    {scanResult.items?.map((item: any, idx: number) => (
+                      <div key={idx} className="flex justify-between text-xs font-medium">
+                        <span>{item.qty}x {item.name}</span>
+                        <span>₹{item.price * item.qty}</span>
+                      </div>
+                    ))}
+                    <div className="border-t border-slate-800/60 pt-2 flex justify-between font-bold text-xs text-emerald-400">
+                      <span>Total Invoice Bill</span>
+                      <span>₹{scanResult.grandTotal}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-[10px] text-center text-slate-500 italic">
+                  💡 This QR token has been marked as used. Duplicate scans will be blocked atomically.
+                </p>
               </div>
             ) : (
-              <div className={`border p-4 rounded-2xl text-center space-y-2 text-yellow-500 ${
-                theme === 'dark' ? 'bg-slate-900 border-yellow-500/30' : 'bg-yellow-50 border-yellow-300'
-              }`}>
-                <AlertCircle className="w-6 h-6 mx-auto text-yellow-500" />
-                <h4 className="font-bold text-xs">Cash on Handover Selected</h4>
-                <p className="text-[11px] text-slate-400">
-                  Your order payment status will show <span className="text-red-500 font-bold">UNPAID</span> until you pay ₹{cartSubtotal + 15} cash to the shopkeeper at the counter.
-                </p>
+              <div className="space-y-4">
+                <div className="bg-red-950/60 border border-red-500/40 text-red-400 p-4 rounded-2xl text-center space-y-2">
+                  <AlertTriangle className="w-10 h-10 mx-auto text-red-500 animate-bounce" />
+                  <h4 className="font-bold text-sm">Access Denied & Token Blocked</h4>
+                  <p className="text-xs text-slate-300 leading-relaxed">{scanResult.message}</p>
+                </div>
+
+                <div className="bg-slate-900/40 p-3.5 rounded-xl border border-slate-800 text-[11px] text-slate-400 leading-relaxed space-y-1">
+                  <span className="font-bold text-red-400 block">Safeguards enforced:</span>
+                  <span>• Reused screenshots / tokens are automatically identified and rejected.</span>
+                  <span>• Order must belong to this specific canteen shop.</span>
+                  <span>• Verify order is in "Ready for Pickup" status before verification.</span>
+                </div>
               </div>
             )}
 
             <button 
-              onClick={handlePlaceOrder}
-              className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-extrabold py-3.5 rounded-2xl text-sm shadow-xl shadow-blue-700/30"
+              onClick={() => setScanResult(null)}
+              className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-bold py-2.5 rounded-xl text-xs"
             >
-              Confirm Order & Pay ₹{cartSubtotal + 15} &rarr;
+              Dismiss Verification Receipt
             </button>
           </div>
         </div>

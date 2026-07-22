@@ -10,7 +10,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export type OrderStatus = 'Pending' | 'Accepted' | 'Ready for Pickup' | 'Completed' | 'Cancelled';
 export type PaymentStatus = 'Paid' | 'Unpaid' | 'Pending' | 'Refund Pending' | 'Refunded';
-export type PaymentMethod = 'Online UPI' | 'Cash on Handover';
+export type PaymentMethod = 'Online UPI';
 
 export interface OrderDoc {
   orderId: string;
@@ -93,9 +93,8 @@ export async function createOrder(input: CreateOrderInput): Promise<{orderId: st
   const qrToken = `HUNGER-QR-${orderId}-${Date.now()}`;
   const now = Date.now();
   
-  const isOnline = input.paymentMethod === 'Online UPI';
-  const paymentStatus: PaymentStatus = isOnline ? (input.isOnlineVerified ? 'Paid' : 'Pending') : 'Unpaid';
-  const transactionId = isOnline ? (input.transactionId || `UPI-TXN-${Math.floor(1000000000 + Math.random() * 9000000000)}`) : undefined;
+  const paymentStatus: PaymentStatus = input.isOnlineVerified ? 'Paid' : 'Pending';
+  const transactionId = input.transactionId || `UPI-TXN-${Math.floor(1000000000 + Math.random() * 9000000000)}`;
   const paidAt = paymentStatus === 'Paid' ? now : undefined;
 
   await supabase.from(ORDERS).insert([{
@@ -191,19 +190,6 @@ export async function markFoodReady(orderId: string) {
     .eq('orderId', orderId);
 }
 
-/** Shop owner manual action: Mark order as Paid (for Cash on Handover fallback). */
-export async function markAsPaidByShopkeeper(orderId: string, shopOwnerName: string) {
-  await supabase
-    .from(ORDERS)
-    .update({
-      paymentStatus: 'Paid' as PaymentStatus,
-      transactionId: `CASH-COLLECTED-BY-${shopOwnerName.toUpperCase().replace(/\s+/g, '-')}`,
-      paidAt: Date.now(),
-      updatedAt: Date.now(),
-    })
-    .eq('orderId', orderId);
-}
-
 export interface QrHandoverResult {
   success: boolean;
   message: string;
@@ -211,7 +197,10 @@ export interface QrHandoverResult {
   paymentStatus?: PaymentStatus;
   paymentMethod?: PaymentMethod;
   transactionId?: string;
-  isUnpaidWarning?: boolean;
+  items?: { id: string; name: string; price: number; qty: number }[];
+  grandTotal?: number;
+  customerName?: string;
+  createdAt?: number;
 }
 
 /** QR-BASED AUTO HANDOVER CONFIRMATION & PAYMENT STATUS CHECK */
@@ -243,7 +232,7 @@ export async function verifyAndProcessQrHandover(
       return { success: false, message: `Order #${targetOrderId} not found in database.` };
     }
 
-    const typedOrder = orderData as OrderDoc;
+    const typedOrder = orderData as any;
 
     if (typedOrder.shopId !== authenticatedShopId) {
       return { success: false, message: `Access Denied: Order #${targetOrderId} belongs to another shop.` };
@@ -252,7 +241,7 @@ export async function verifyAndProcessQrHandover(
     if (typedOrder.status === 'Completed' || typedOrder.foodCollected) {
       return { 
         success: false, 
-        message: `Order #${targetOrderId} has ALREADY been marked as handed over.`,
+        message: `⚠️ DUPLICATE SCAN BLOCKED: Order #${targetOrderId} has already been handed over!`,
         paymentStatus: typedOrder.paymentStatus,
         paymentMethod: typedOrder.paymentMethod,
         transactionId: typedOrder.transactionId
@@ -281,8 +270,7 @@ export async function verifyAndProcessQrHandover(
     if (typedOrder.paymentStatus !== 'Paid') {
       return {
         success: false,
-        isUnpaidWarning: true,
-        message: `⚠️ PAYMENT NOT RECEIVED: Order #${targetOrderId} payment status is '${typedOrder.paymentStatus}' (${typedOrder.paymentMethod}). Please collect cash before handing over food!`,
+        message: `⚠️ PAYMENT NOT RECEIVED: Order #${targetOrderId} payment status is '${typedOrder.paymentStatus}'. Handover blocked.`,
         orderId: targetOrderId,
         paymentStatus: typedOrder.paymentStatus,
         paymentMethod: typedOrder.paymentMethod,
@@ -290,6 +278,7 @@ export async function verifyAndProcessQrHandover(
       };
     }
 
+    // Atomically complete handover and disable token
     await supabase
       .from(ORDERS)
       .update({
@@ -303,11 +292,15 @@ export async function verifyAndProcessQrHandover(
 
     return { 
       success: true, 
-      message: `🎉 Order #${targetOrderId} verified & marked as Handed Over! (Payment: PAID via ${typedOrder.transactionId || typedOrder.paymentMethod})`,
+      message: `🎉 Order #${targetOrderId} verified & marked as Handed Over!`,
       orderId: targetOrderId,
       paymentStatus: 'Paid',
       paymentMethod: typedOrder.paymentMethod,
-      transactionId: typedOrder.transactionId
+      transactionId: typedOrder.transactionId,
+      items: typedOrder.items,
+      grandTotal: typedOrder.grandTotal,
+      customerName: typedOrder.customerName || 'Student Customer',
+      createdAt: typedOrder.createdAt
     };
 
   } catch (err: any) {
