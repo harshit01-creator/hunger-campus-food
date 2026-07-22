@@ -10,10 +10,13 @@ buildscript {
     repositories {
         google()
         mavenCentral()
+        maven {
+            url("$rootDir/../node_modules/react-native/android")
+        }
     }
     dependencies {
         classpath("com.android.tools.build:gradle:8.2.1")
-        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("com.facebook.react:react-native-gradle-plugin:0.75.4")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
         classpath("com.google.gms:google-services:4.4.1")
     }
@@ -23,5 +26,40 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven {
+            url("$rootDir/../node_modules/react-native/android")
+        }
+    }
+}
+
+subprojects {
+    configurations.all {
+        resolutionStrategy {
+            force 'androidx.core:core:1.13.1'
+            force 'androidx.core:core-ktx:1.13.1'
+        }
+    }
+    afterEvaluate { project ->
+        if (project.hasProperty("android")) {
+            project.android {
+                buildFeatures {
+                    buildConfig true
+                }
+                if (namespace == null) {
+                    try {
+                        def manifestFile = file("${projectDir}/src/main/AndroidManifest.xml")
+                        if (manifestFile.exists()) {
+                            def manifest = new XmlParser().parse(manifestFile)
+                            def packageName = manifest.attribute("package")
+                            if (packageName) {
+                                namespace packageName
+                            }
+                        }
+                    } catch (Exception e) {
+                        // ignore or print warning
+                    }
+                }
+            }
+        }
     }
 }
