@@ -1,5 +1,8 @@
 // Authentication & Role-Based Access Control service.
 // Supports Strict Role-Locking (Customer vs Shopkeeper vs Super Admin) & Unlimited Shopkeeper Accounts.
+// Persists user sessions and mappings to Supabase database table `user_accounts` to prevent device isolation.
+
+import { supabase } from './orders';
 
 export type UserRole = 'customer' | 'shopkeeper' | 'super_admin';
 
@@ -16,7 +19,7 @@ export interface UserAccount {
 export const SUPER_ADMIN_EMAIL = 'harshit071111@gmail.com';
 export const SUPER_ADMIN_PASSWORD = 'Har_shit6959';
 
-const INITIAL_USERS: UserAccount[] = [
+export const INITIAL_USERS: UserAccount[] = [
   {
     id: 'usr-admin-1',
     email: SUPER_ADMIN_EMAIL,
@@ -53,7 +56,80 @@ const INITIAL_USERS: UserAccount[] = [
   }
 ];
 
-let usersStore: UserAccount[] = [...INITIAL_USERS];
+export let usersStore: UserAccount[] = [...INITIAL_USERS];
+
+const STORAGE_USERS_KEY = 'hunger_users_data_v1';
+
+export function loadUsersLocal(): UserAccount[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_USERS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (e) {
+    console.warn('[auth] Storage load error:', e);
+  }
+  return INITIAL_USERS;
+}
+
+export function saveUsersLocal(users: UserAccount[]): void {
+  try {
+    localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
+  } catch (e) {
+    console.error('[auth] Storage save error:', e);
+  }
+}
+
+/** Fetches users list from Supabase cloud database, seeding it if empty */
+export async function fetchUsersFromSupabase(): Promise<UserAccount[]> {
+  try {
+    const { data, error } = await supabase.from('user_accounts').select('*');
+    if (!error && data) {
+      if (data.length === 0) {
+        console.log('[Supabase] Database empty. Seeding INITIAL_USERS...');
+        await supabase.from('user_accounts').insert(INITIAL_USERS);
+        saveUsersLocal(INITIAL_USERS);
+        usersStore = [...INITIAL_USERS];
+        return INITIAL_USERS;
+      }
+      const dbUsers = data as UserAccount[];
+      saveUsersLocal(dbUsers);
+      usersStore = dbUsers;
+      return dbUsers;
+    }
+    if (error) {
+      console.warn('[Supabase Query Users Error]:', error);
+    }
+  } catch (err) {
+    console.warn('[Supabase] Falling back to local storage for users:', err);
+  }
+  const local = loadUsersLocal();
+  usersStore = local;
+  return local;
+}
+
+/** Saves or updates a user in the Supabase user_accounts table */
+export async function saveUserToSupabase(user: UserAccount): Promise<UserAccount[]> {
+  try {
+    const { error } = await supabase.from('user_accounts').upsert([user], { onConflict: 'id' });
+    if (error) console.warn('[Supabase Upsert User Error]:', error);
+  } catch (err) {
+    console.warn('[Supabase Upsert User Exception]:', err);
+  }
+  
+  const currentUsers = usersStore.length > 0 ? usersStore : loadUsersLocal();
+  const existingIndex = currentUsers.findIndex(u => u.id === user.id);
+  let updated: UserAccount[];
+  if (existingIndex >= 0) {
+    updated = currentUsers.map(u => u.id === user.id ? { ...u, ...user } : u);
+  } else {
+    updated = [user, ...currentUsers];
+  }
+  usersStore = updated;
+  saveUsersLocal(updated);
+  return updated;
+}
 
 /**
  * Server-side authentication simulation.
@@ -67,6 +143,9 @@ export async function authenticateUser(
   passwordInput: string,
   expectedLoginTab: 'customer' | 'shopkeeper'
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
+
+  // Synchronize users from database first
+  await fetchUsersFromSupabase();
 
   console.log('[Auth Debug] Received raw email:', emailInput ? '[PROVIDED]' : '[EMPTY]');
   console.log('[Auth Debug] Target Admin Email Check:', emailInput === SUPER_ADMIN_EMAIL);
@@ -131,6 +210,7 @@ export async function authenticateUser(
       createdAt: Date.now()
     };
     usersStore.push(newShopkeeper);
+    await saveUserToSupabase(newShopkeeper);
     return { success: true, user: newShopkeeper };
   }
 
@@ -144,6 +224,7 @@ export async function authenticateUser(
       createdAt: Date.now()
     };
     usersStore.push(newCustomer);
+    await saveUserToSupabase(newCustomer);
     return { success: true, user: newCustomer };
   }
 
@@ -155,6 +236,7 @@ export async function registerCustomer(
   name: string,
   email: string
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
+  await fetchUsersFromSupabase();
   const normalizedEmail = email.trim().toLowerCase();
   if (normalizedEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
     return { success: false, message: 'This email address is reserved.' };
@@ -178,6 +260,7 @@ export async function registerCustomer(
   };
 
   usersStore.push(newUser);
+  await saveUserToSupabase(newUser);
   return { success: true, user: newUser };
 }
 
@@ -187,6 +270,7 @@ export async function createShopkeeperAccount(
   email: string,
   shopId: string
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
+  await fetchUsersFromSupabase();
   const normalizedEmail = email.trim().toLowerCase();
 
   const existing = usersStore.find(u => u.email.toLowerCase() === normalizedEmail);
@@ -200,6 +284,7 @@ export async function createShopkeeperAccount(
     // Existing shopkeeper account -> Link to new shop ID
     existing.shopId = shopId;
     if (name) existing.name = name;
+    await saveUserToSupabase(existing);
     return { success: true, user: existing };
   }
 
@@ -214,5 +299,6 @@ export async function createShopkeeperAccount(
   };
 
   usersStore.push(newShopkeeper);
+  await saveUserToSupabase(newShopkeeper);
   return { success: true, user: newShopkeeper };
 }
