@@ -1150,7 +1150,7 @@ export default function WebApp() {
         <div className="max-w-7xl mx-auto flex items-center justify-between text-xs font-medium">
           
           {currentUser.role === 'customer' && (
-            <div className="flex items-center gap-1 sm:gap-2">
+            <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto whitespace-nowrap max-w-full scrollbar-none">
               <button 
                 onClick={() => setActiveTab('home')}
                 className={`px-3 py-1.5 rounded-lg transition ${activeTab === 'home' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-slate-700'}`}
@@ -1636,8 +1636,9 @@ export default function WebApp() {
                     : 'text-slate-400 hover:text-slate-700'
                 }`}
               >
-                <ShoppingBag className="w-4 h-4" />
-                <span>Orders & Canteen Menu</span>
+                <ShoppingBag className="w-4 h-4 flex-shrink-0" />
+                <span className="hidden sm:inline">Orders & Canteen Menu</span>
+                <span className="sm:hidden text-[11px]">Orders & Menu</span>
               </button>
               <button 
                 onClick={() => setShopkeeperSubTab('analytics')}
@@ -1647,8 +1648,9 @@ export default function WebApp() {
                     : 'text-slate-400 hover:text-slate-700'
                 }`}
               >
-                <TrendingUp className="w-4 h-4" />
-                <span>Smart AI Sales Insights</span>
+                <TrendingUp className="w-4 h-4 flex-shrink-0" />
+                <span className="hidden sm:inline">Smart AI Sales Insights</span>
+                <span className="sm:hidden text-[11px]">AI Insights</span>
               </button>
             </div>
 
@@ -1857,15 +1859,15 @@ export default function WebApp() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {menuItems.filter(i => i.shopId === activeShopForOwner.id || i.shopId === currentUser?.shopId).map(item => (
-                      <div key={item.id} className={`p-4 rounded-2xl flex justify-between gap-3 border transition ${
+                     {menuItems.filter(i => i.shopId === activeShopForOwner.id || i.shopId === currentUser?.shopId).map(item => (
+                      <div key={item.id} className={`p-4 rounded-2xl flex flex-col sm:flex-row justify-between gap-4 border transition ${
                         item.isSpecial ? 'border-amber-400/80 shadow-md shadow-amber-400/10' :
                         theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
                       }`}>
                         <div className="flex gap-3">
-                          <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className="w-16 h-16 rounded-xl object-cover" />
+                          <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className="w-16 h-16 rounded-xl object-cover flex-shrink-0" />
                           <div className="space-y-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <h4 className="font-bold text-xs">{item.name}</h4>
                               {item.isSpecial && (
                                 <span className="bg-amber-400/20 text-amber-500 border border-amber-400/40 text-[9px] font-extrabold px-1.5 py-0.5 rounded">
@@ -1878,7 +1880,7 @@ export default function WebApp() {
                           </div>
                         </div>
 
-                        <div className="flex flex-col justify-between items-end">
+                        <div className="flex sm:flex-col justify-between items-center sm:items-end gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/40 w-full sm:w-auto">
                           <button 
                             onClick={() => handleToggleSpecial(item.id)}
                             className={`p-1.5 rounded-lg border text-[10px] font-bold transition flex items-center gap-1 ${
@@ -1891,7 +1893,7 @@ export default function WebApp() {
                             <span>{item.isSpecial ? 'Special' : 'Mark Special'}</span>
                           </button>
 
-                          <div className="flex items-center gap-1 pt-2">
+                          <div className="flex items-center gap-1.5">
                             <button 
                               onClick={() => openEditItemModal(item)}
                               className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition"
@@ -2217,23 +2219,24 @@ export default function WebApp() {
               </h3>
 
               <div className="space-y-3">
-                {shops.map(s => (
-                  <div key={s.id} className={`p-4 rounded-2xl flex items-center justify-between border ${
+                 {shops.map(s => (
+                  <div key={s.id} className={`p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 border ${
                     theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
                   }`}>
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
+                    <div className="space-y-1 w-full sm:w-auto">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h4 className="font-bold text-sm">{s.name}</h4>
                         <span className="bg-purple-500/20 text-purple-400 text-[10px] font-bold px-2 py-0.5 rounded-md border border-purple-500/30 font-mono">
                           {s.id}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-400 font-mono">Owner Email: {s.email} • UPI: {s.upiId}</p>
+                      <p className="text-xs text-slate-400 font-mono break-all">Owner Email: {s.email}</p>
+                      <p className="text-xs text-slate-400 font-mono">UPI VPA: {s.upiId}</p>
                     </div>
 
                     <button 
                       onClick={() => handleDeleteShop(s.id, s.name)}
-                      className="bg-red-950/60 hover:bg-red-900 border border-red-500/30 text-red-400 font-bold px-3.5 py-2 rounded-xl text-xs transition flex items-center gap-1.5"
+                      className="bg-red-950/60 hover:bg-red-900 border border-red-500/30 text-red-400 font-bold px-3.5 py-2 rounded-xl text-xs transition flex items-center justify-center gap-1.5 w-full sm:w-auto"
                       title="Delete Canteen Shop (Protected against active unfulfilled orders)"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -2251,7 +2254,7 @@ export default function WebApp() {
       {/* SUPER ADMIN MODAL (ADD NEW CANTEEN SHOP) */}
       {isAddShopkeeperOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className={`w-full max-w-md p-6 rounded-3xl space-y-4 shadow-2xl relative border ${
+          <div className={`w-full max-w-md p-6 rounded-3xl space-y-4 shadow-2xl relative border max-h-[90vh] overflow-y-auto ${
             theme === 'dark' ? 'glass-panel border-purple-500/40 text-white' : 'bg-white border-purple-200 text-slate-900'
           }`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
@@ -2330,7 +2333,7 @@ export default function WebApp() {
       {/* DISCOUNT & MENU MODALS */}
       {isDiscountModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className={`w-full max-w-md p-6 rounded-3xl space-y-4 shadow-2xl relative border ${
+          <div className={`w-full max-w-md p-6 rounded-3xl space-y-4 shadow-2xl relative border max-h-[90vh] overflow-y-auto ${
             theme === 'dark' ? 'glass-panel border-emerald-500/40 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
@@ -2410,7 +2413,7 @@ export default function WebApp() {
       {/* VERCEL APP LINK SHARING MODAL */}
       {isVercelModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className={`w-full max-w-md p-6 rounded-3xl space-y-5 shadow-2xl relative border ${
+          <div className={`w-full max-w-md p-6 rounded-3xl space-y-5 shadow-2xl relative border max-h-[90vh] overflow-y-auto ${
             theme === 'dark' ? 'glass-panel border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
@@ -2614,7 +2617,7 @@ export default function WebApp() {
       {/* CHECKOUT MODAL */}
       {isCheckoutOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn">
-          <div className={`w-full max-w-lg p-6 rounded-3xl space-y-5 shadow-2xl relative border ${
+          <div className={`w-full max-w-lg p-6 rounded-3xl space-y-5 shadow-2xl relative border max-h-[90vh] overflow-y-auto ${
             theme === 'dark' ? 'glass-panel border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
@@ -2651,7 +2654,7 @@ export default function WebApp() {
       {/* ONLINE PAYMENT GATEWAY WEBHOOK SIMULATOR MODAL */}
       {isPayingGateway && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-fadeIn">
-          <div className={`w-full max-w-md p-6 rounded-3xl space-y-6 shadow-2xl border text-center ${
+          <div className={`w-full max-w-md p-6 rounded-3xl space-y-6 shadow-2xl border text-center max-h-[90vh] overflow-y-auto ${
             theme === 'dark' ? 'glass-panel border-blue-500/40 text-white' : 'bg-white border-blue-200 text-slate-900 shadow-blue-300/50'
           }`}>
             <div className="space-y-2">
@@ -2733,7 +2736,7 @@ export default function WebApp() {
       {/* QR SCAN FRESH RECEIPT & HANDOVER POPUP MODAL */}
       {scanResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
-          <div className={`w-full max-w-lg p-6 rounded-3xl space-y-5 shadow-2xl relative border ${
+          <div className={`w-full max-w-lg p-6 rounded-3xl space-y-5 shadow-2xl relative border max-h-[90vh] overflow-y-auto ${
             theme === 'dark' ? 'glass-panel border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
