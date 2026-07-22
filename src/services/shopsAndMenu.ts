@@ -235,10 +235,19 @@ export function saveMenuItems(menu: FoodItem[]): void {
 export async function fetchShopsFromSupabase(): Promise<ShopAccount[]> {
   try {
     const { data, error } = await supabase.from('shops').select('*');
-    if (!error && data && data.length > 0) {
+    if (!error && data) {
+      if (data.length === 0) {
+        console.log('[Supabase] Database empty. Seeding INITIAL_SHOPS...');
+        await supabase.from('shops').insert(INITIAL_SHOPS);
+        saveShops(INITIAL_SHOPS);
+        return INITIAL_SHOPS;
+      }
       const dbShops = data as ShopAccount[];
       saveShops(dbShops);
       return dbShops;
+    }
+    if (error) {
+      console.warn('[Supabase Query Shop Error]:', error);
     }
   } catch (err) {
     console.warn('[Supabase] Falling back to local storage for shops:', err);
@@ -247,18 +256,6 @@ export async function fetchShopsFromSupabase(): Promise<ShopAccount[]> {
 }
 
 export async function addOrUpdateShopAccount(shop: ShopAccount): Promise<ShopAccount[]> {
-  const currentShops = loadShops();
-  const existingIndex = currentShops.findIndex(s => s.id === shop.id);
-  
-  let updated: ShopAccount[];
-  if (existingIndex >= 0) {
-    updated = currentShops.map(s => s.id === shop.id ? { ...s, ...shop } : s);
-  } else {
-    updated = [shop, ...currentShops];
-  }
-
-  saveShops(updated);
-
   try {
     const { error } = await supabase.from('shops').upsert([shop], { onConflict: 'id' });
     if (error) console.warn('[Supabase Insert Shop Error]:', error);
@@ -266,10 +263,26 @@ export async function addOrUpdateShopAccount(shop: ShopAccount): Promise<ShopAcc
     console.warn('[Supabase Insert Shop Exception]:', err);
   }
 
+  const currentShops = loadShops();
+  const existingIndex = currentShops.findIndex(s => s.id === shop.id);
+  let updated: ShopAccount[];
+  if (existingIndex >= 0) {
+    updated = currentShops.map(s => s.id === shop.id ? { ...s, ...shop } : s);
+  } else {
+    updated = [shop, ...currentShops];
+  }
+  saveShops(updated);
   return updated;
 }
 
 export async function deleteShopAccount(shopId: string): Promise<{ shops: ShopAccount[]; menuItems: FoodItem[] }> {
+  try {
+    await supabase.from('shops').delete().eq('id', shopId);
+    await supabase.from('food_items').delete().eq('shopId', shopId);
+  } catch (err) {
+    console.warn('[Supabase Delete Shop Exception]:', err);
+  }
+
   const currentShops = loadShops();
   const updatedShops = currentShops.filter(s => s.id !== shopId);
   saveShops(updatedShops);
@@ -277,13 +290,6 @@ export async function deleteShopAccount(shopId: string): Promise<{ shops: ShopAc
   const currentMenu = loadMenuItems();
   const updatedMenu = currentMenu.filter(m => m.shopId !== shopId);
   saveMenuItems(updatedMenu);
-
-  try {
-    await supabase.from('shops').delete().eq('id', shopId);
-    await supabase.from('food_items').delete().eq('shopId', shopId);
-  } catch (err) {
-    console.warn('[Supabase Delete Shop Exception]:', err);
-  }
 
   return { shops: updatedShops, menuItems: updatedMenu };
 }
@@ -293,10 +299,19 @@ export async function deleteShopAccount(shopId: string): Promise<{ shops: ShopAc
 export async function fetchMenuItemsFromSupabase(): Promise<FoodItem[]> {
   try {
     const { data, error } = await supabase.from('food_items').select('*');
-    if (!error && data && data.length > 0) {
+    if (!error && data) {
+      if (data.length === 0) {
+        console.log('[Supabase] Database empty. Seeding INITIAL_MENU...');
+        await supabase.from('food_items').insert(INITIAL_MENU);
+        saveMenuItems(INITIAL_MENU);
+        return INITIAL_MENU;
+      }
       const dbMenu = data as FoodItem[];
       saveMenuItems(dbMenu);
       return dbMenu;
+    }
+    if (error) {
+      console.warn('[Supabase Query Menu Error]:', error);
     }
   } catch (err) {
     console.warn('[Supabase] Falling back to local storage for menu:', err);
@@ -305,18 +320,6 @@ export async function fetchMenuItemsFromSupabase(): Promise<FoodItem[]> {
 }
 
 export async function addOrUpdateFoodItem(item: FoodItem): Promise<FoodItem[]> {
-  const currentMenu = loadMenuItems();
-  const existingIndex = currentMenu.findIndex(m => m.id === item.id);
-
-  let updated: FoodItem[];
-  if (existingIndex >= 0) {
-    updated = currentMenu.map(m => m.id === item.id ? { ...m, ...item } : m);
-  } else {
-    updated = [item, ...currentMenu];
-  }
-
-  saveMenuItems(updated);
-
   try {
     const { error } = await supabase.from('food_items').upsert([item], { onConflict: 'id' });
     if (error) console.warn('[Supabase Insert Item Error]:', error);
@@ -324,20 +327,28 @@ export async function addOrUpdateFoodItem(item: FoodItem): Promise<FoodItem[]> {
     console.warn('[Supabase Insert Item Exception]:', err);
   }
 
+  const currentMenu = loadMenuItems();
+  const existingIndex = currentMenu.findIndex(m => m.id === item.id);
+  let updated: FoodItem[];
+  if (existingIndex >= 0) {
+    updated = currentMenu.map(m => m.id === item.id ? { ...m, ...item } : m);
+  } else {
+    updated = [item, ...currentMenu];
+  }
+  saveMenuItems(updated);
   return updated;
 }
 
 export async function deleteFoodItemById(itemId: string): Promise<FoodItem[]> {
-  const currentMenu = loadMenuItems();
-  const updated = currentMenu.filter(m => m.id !== itemId);
-  saveMenuItems(updated);
-
   try {
     await supabase.from('food_items').delete().eq('id', itemId);
   } catch (err) {
     console.warn('[Supabase Delete Item Exception]:', err);
   }
 
+  const currentMenu = loadMenuItems();
+  const updated = currentMenu.filter(m => m.id !== itemId);
+  saveMenuItems(updated);
   return updated;
 }
 

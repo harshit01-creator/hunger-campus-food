@@ -1153,20 +1153,32 @@ export default function WebApp() {
             <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto whitespace-nowrap max-w-full scrollbar-none">
               <button 
                 onClick={() => setActiveTab('home')}
-                className={`px-3 py-1.5 rounded-lg transition ${activeTab === 'home' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-slate-700'}`}
+                className={`px-3 py-1.5 rounded-lg transition ${
+                  activeTab === 'home' 
+                    ? 'bg-blue-700 text-white font-semibold' 
+                    : theme === 'dark' ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
                 {t('overview', currentLang)}
               </button>
               <button 
                 onClick={() => setActiveTab('menu')}
-                className={`px-3 py-1.5 rounded-lg transition ${activeTab === 'menu' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-slate-700'}`}
+                className={`px-3 py-1.5 rounded-lg transition ${
+                  activeTab === 'menu' 
+                    ? 'bg-blue-700 text-white font-semibold' 
+                    : theme === 'dark' ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
                 {t('fullMenu', currentLang)}
               </button>
               {currentOrder && (
                 <button 
                   onClick={() => setActiveTab('tracking')}
-                  className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${activeTab === 'tracking' ? 'bg-blue-700 text-white font-semibold' : 'text-slate-400 hover:text-slate-700'}`}
+                  className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
+                    activeTab === 'tracking' 
+                      ? 'bg-blue-700 text-white font-semibold' 
+                      : theme === 'dark' ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                  }`}
                 >
                   <span>{t('liveOrder', currentLang)}</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
@@ -1288,7 +1300,9 @@ export default function WebApp() {
                       <p className="text-[11px] text-slate-400 font-mono mt-1">UPI: {shop.upiId}</p>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+                    <div className={`pt-2 border-t flex items-center justify-between text-[11px] ${
+                      theme === 'dark' ? 'border-slate-800/80 text-slate-400' : 'border-slate-200 text-slate-600'
+                    }`}>
                       <span>Time-Slot Availability</span>
                       <span className="text-emerald-500 font-semibold group-hover:translate-x-1 transition flex items-center">
                         Menu &rarr;
@@ -1356,7 +1370,9 @@ export default function WebApp() {
                         </div>
                       </div>
 
-                      <div className="p-4 pt-0 flex items-center justify-between border-t border-slate-800/60 mt-3">
+                      <div className={`p-4 pt-0 flex items-center justify-between border-t mt-3 ${
+                        theme === 'dark' ? 'border-slate-800/60' : 'border-slate-200'
+                      }`}>
                         <div>
                           <span className="text-xs text-slate-400">Price</span>
                           <div className="flex items-center gap-2">
@@ -1454,8 +1470,14 @@ export default function WebApp() {
                       </div>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px]">
-                      <span className={`px-2 py-0.5 rounded ${availableNow ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-500/30' : 'bg-red-950/80 text-red-400 border border-red-500/30'}`}>
+                    <div className={`pt-2 border-t flex items-center justify-between text-[11px] ${
+                      theme === 'dark' ? 'border-slate-800/60 text-slate-400' : 'border-slate-200 text-slate-600'
+                    }`}>
+                      <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${
+                        availableNow 
+                          ? (theme === 'dark' ? 'bg-emerald-950/80 text-emerald-400 border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border-emerald-200') 
+                          : (theme === 'dark' ? 'bg-red-950/80 text-red-400 border-red-500/30' : 'bg-red-50 text-red-700 border-red-200')
+                      }`}>
                         {availableNow ? `Slot: ${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'}` : t('slotClosed', currentLang)}
                       </span>
 
@@ -1551,7 +1573,9 @@ export default function WebApp() {
                   </div>
                 )}
 
-                <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden p-0.5 border border-slate-800">
+                 <div className={`w-full rounded-full h-3 overflow-hidden p-0.5 border ${
+                  theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-100 border-slate-200 shadow-inner'
+                }`}>
                   <div 
                     className={`h-full rounded-full transition-all duration-500 ${
                       currentOrder.status === 'Cancelled' ? 'bg-red-500' : 'bg-gradient-to-r from-blue-600 to-emerald-400'
@@ -1564,30 +1588,40 @@ export default function WebApp() {
               <div className={`p-6 rounded-3xl border space-y-6 ${
                 theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
               }`}>
-                <h3 className="font-bold text-sm border-b border-slate-800 pb-3">Real-time Order Status Flow</h3>
+                <h3 className={`font-bold text-sm border-b pb-3 ${theme === 'dark' ? 'border-slate-800/80' : 'border-slate-200'}`}>Real-time Order Status Flow</h3>
 
-                <div className="space-y-6 relative before:absolute before:left-4 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-800">
+                <div className={`space-y-6 relative before:absolute before:left-4 before:top-3 before:bottom-3 before:w-0.5 ${
+                  theme === 'dark' ? 'before:bg-slate-800' : 'before:bg-slate-200'
+                }`}>
                   <div className="flex items-start gap-4 relative z-10">
                     <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold">1</div>
                     <div>
                       <h4 className="font-bold text-sm">Order Placed</h4>
-                      <p className="text-xs text-slate-400">Status: <span className="text-yellow-500 font-bold">{currentOrder.status}</span> • Payment: <span className="text-emerald-500 font-bold">{currentOrder.paymentStatus}</span></p>
+                      <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Status: <span className="text-yellow-500 font-bold">{currentOrder.status}</span> • Payment: <span className="text-emerald-500 font-bold">{currentOrder.paymentStatus}</span></p>
                     </div>
                   </div>
 
                   <div className="flex items-start gap-4 relative z-10">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Accepted', 'Ready for Pickup', 'Completed'].includes(currentOrder.status) ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'}`}>2</div>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                      ['Accepted', 'Ready for Pickup', 'Completed'].includes(currentOrder.status) 
+                        ? 'bg-blue-600 text-white' 
+                        : (theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-500')
+                    }`}>2</div>
                     <div>
                       <h4 className="font-bold text-sm">Accepted & Preparing</h4>
-                      <p className="text-xs text-slate-400">Accepted by canteen • Cancellation locked</p>
+                      <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Accepted by canteen • Cancellation locked</p>
                     </div>
                   </div>
 
                   <div className="flex items-start gap-4 relative z-10">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${['Ready for Pickup', 'Completed'].includes(currentOrder.status) ? 'bg-emerald-500 text-white animate-bounce' : 'bg-slate-800 text-slate-400'}`}>3</div>
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                      ['Ready for Pickup', 'Completed'].includes(currentOrder.status) 
+                        ? 'bg-emerald-500 text-white animate-bounce' 
+                        : (theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-500')
+                    }`}>3</div>
                     <div>
                       <h4 className="font-bold text-sm">🍽️ Food is Ready — Please collect your order</h4>
-                      <p className="text-xs text-slate-400">Show QR code below to shopkeeper</p>
+                      <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Show QR code below to shopkeeper</p>
                     </div>
                   </div>
                 </div>
@@ -1598,8 +1632,10 @@ export default function WebApp() {
                 <div className={`p-6 rounded-3xl border text-center space-y-4 ${
                   theme === 'dark' ? 'glass-card border-slate-800' : 'bg-white border-slate-200 shadow-xl'
                 }`}>
-                  <div className="inline-flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs text-slate-300">
-                    <QrCode className="w-4 h-4 text-emerald-400" />
+                  <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs border ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700 shadow-sm'
+                  }`}>
+                    <QrCode className={`w-4 h-4 ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`} />
                     <span className="font-semibold">Single-Use Order Collection QR Code</span>
                   </div>
 
@@ -1987,10 +2023,10 @@ export default function WebApp() {
                       {analytics.totalOrders > 0 ? (
                         <svg viewBox="0 0 500 180" className="w-full h-full">
                           {/* Grid Lines */}
-                          <line x1="40" y1="20" x2="460" y2="20" stroke="#334155" strokeDasharray="3,3" />
-                          <line x1="40" y1="70" x2="460" y2="70" stroke="#334155" strokeDasharray="3,3" />
-                          <line x1="40" y1="120" x2="460" y2="120" stroke="#334155" strokeDasharray="3,3" />
-                          <line x1="40" y1="150" x2="460" y2="150" stroke="#475569" strokeWidth="1.5" />
+                          <line x1="40" y1="20" x2="460" y2="20" stroke={theme === 'dark' ? '#334155' : '#cbd5e1'} strokeDasharray="3,3" />
+                          <line x1="40" y1="70" x2="460" y2="70" stroke={theme === 'dark' ? '#334155' : '#cbd5e1'} strokeDasharray="3,3" />
+                          <line x1="40" y1="120" x2="460" y2="120" stroke={theme === 'dark' ? '#334155' : '#cbd5e1'} strokeDasharray="3,3" />
+                          <line x1="40" y1="150" x2="460" y2="150" stroke={theme === 'dark' ? '#475569' : '#94a3b8'} strokeWidth="1.5" />
                           
                           {/* Draw curve path */}
                           {(() => {
@@ -2017,8 +2053,8 @@ export default function WebApp() {
                                       cx={p.x} 
                                       cy={p.y} 
                                       r="4.5" 
-                                      fill={p.rev > 0 ? '#3b82f6' : '#475569'} 
-                                      stroke="#1e293b" 
+                                      fill={p.rev > 0 ? '#3b82f6' : (theme === 'dark' ? '#475569' : '#cbd5e1')} 
+                                      stroke={theme === 'dark' ? '#1e293b' : '#ffffff'} 
                                       strokeWidth="2" 
                                       className="transition-all duration-300 hover:r-7 cursor-pointer"
                                     />
@@ -2660,7 +2696,7 @@ export default function WebApp() {
             <div className="space-y-2">
               <Smartphone className="w-12 h-12 mx-auto text-blue-500 animate-pulse" />
               <h3 className="text-xl font-extrabold font-heading">Secure Online UPI Gateway</h3>
-              <p className="text-xs text-slate-400">Processing transaction for ₹{cartSubtotal + 15} to VPA: {currentCheckoutShop.upiId}</p>
+              <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Processing transaction for ₹{cartSubtotal + 15} to VPA: {currentCheckoutShop.upiId}</p>
             </div>
 
             {gatewayStatus === 'waiting' && (
@@ -2670,26 +2706,30 @@ export default function WebApp() {
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '150ms' }} />
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
-                <p className="text-xs text-slate-300 font-semibold">Waiting for server verification of online payment...</p>
-                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
+                <p className={`text-xs font-semibold ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>Waiting for server verification of online payment...</p>
+                <div className={`p-3 rounded-xl border text-[11px] leading-relaxed ${
+                  theme === 'dark' 
+                    ? 'bg-slate-900/60 border-slate-800 text-slate-400' 
+                    : 'bg-slate-50 border-slate-200 text-slate-600'
+                }`}>
                   📱 To complete the payment simulation: Tap **"Simulate Gateway Success"** or cancel to return.
                 </div>
               </div>
             )}
 
             {gatewayStatus === 'success' && (
-              <div className="space-y-3 py-4 text-emerald-400 animate-scaleIn">
+              <div className="space-y-3 py-4 text-emerald-500 animate-scaleIn">
                 <Check className="w-12 h-12 mx-auto bg-emerald-500/20 rounded-full p-2.5 border border-emerald-500/40 animate-ping" />
                 <h4 className="font-bold text-sm">🎉 Webhook Callback Verified!</h4>
-                <p className="text-xs text-slate-400">Payment status: PAID. Confirming order creation...</p>
+                <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Payment status: PAID. Confirming order creation...</p>
               </div>
             )}
 
             {gatewayStatus === 'failed' && (
-              <div className="space-y-3 py-4 text-red-400">
+              <div className="space-y-3 py-4 text-red-500">
                 <AlertCircle className="w-12 h-12 mx-auto text-red-500" />
                 <h4 className="font-bold text-sm">Payment Verification Failed</h4>
-                <p className="text-xs text-slate-400">{gatewayError}</p>
+                <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>{gatewayError}</p>
               </div>
             )}
 
@@ -2739,7 +2779,7 @@ export default function WebApp() {
           <div className={`w-full max-w-lg p-6 rounded-3xl space-y-5 shadow-2xl relative border max-h-[90vh] overflow-y-auto ${
             theme === 'dark' ? 'glass-panel border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className={`flex items-center justify-between pb-3 border-b ${theme === 'dark' ? 'border-slate-800' : 'border-slate-200'}`}>
               <h3 className="font-extrabold font-heading text-lg">
                 {scanResult.success ? '🧾 Order Verification Receipt' : '🚫 Scan Verification Failed'}
               </h3>
@@ -2748,10 +2788,12 @@ export default function WebApp() {
 
             {scanResult.success ? (
               <div className="space-y-4">
-                <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 p-3.5 rounded-2xl text-center space-y-1">
-                  <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-400" />
+                <div className={`border p-3.5 rounded-2xl text-center space-y-1 ${
+                  theme === 'dark' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50/80 border-emerald-200 text-emerald-700'
+                }`}>
+                  <CheckCircle2 className={`w-8 h-8 mx-auto ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`} />
                   <h4 className="font-bold text-sm">Order Verification Successful!</h4>
-                  <p className="text-[11px] text-slate-400">Marked as completed & disabled QR token in server database</p>
+                  <p className={`text-[11px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Marked as completed & disabled QR token in server database</p>
                 </div>
 
                 <div className={`p-4 rounded-2xl border space-y-3 ${
@@ -2759,32 +2801,34 @@ export default function WebApp() {
                 }`}>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div>
-                      <span className="text-slate-400 block text-[10px]">CUSTOMER NAME</span>
+                      <span className={`block text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>CUSTOMER NAME</span>
                       <span className="font-bold">{scanResult.customerName || 'Student Customer'}</span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px]">ORDER ID</span>
+                      <span className={`block text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>ORDER ID</span>
                       <span className="font-mono font-bold text-blue-500">{scanResult.orderId}</span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px]">PAYMENT METHOD</span>
+                      <span className={`block text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>PAYMENT METHOD</span>
                       <span className="font-bold">Online UPI (PAID)</span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px]">TRANSACTION REFERENCE</span>
-                      <span className="font-mono text-[10px] text-emerald-400 truncate block">{scanResult.transactionId}</span>
+                      <span className={`block text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>TRANSACTION REFERENCE</span>
+                      <span className={`font-mono text-[10px] truncate block ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`}>{scanResult.transactionId}</span>
                     </div>
                   </div>
 
-                  <div className="border-t border-slate-800/80 pt-2 space-y-2">
-                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Items Summary</span>
+                  <div className={`border-t pt-2 space-y-2 ${theme === 'dark' ? 'border-slate-800/80' : 'border-slate-200'}`}>
+                    <span className={`text-[10px] uppercase font-bold block ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Items Summary</span>
                     {scanResult.items?.map((item: any, idx: number) => (
                       <div key={idx} className="flex justify-between text-xs font-medium">
                         <span>{item.qty}x {item.name}</span>
                         <span>₹{item.price * item.qty}</span>
                       </div>
                     ))}
-                    <div className="border-t border-slate-800/60 pt-2 flex justify-between font-bold text-xs text-emerald-400">
+                    <div className={`border-t pt-2 flex justify-between font-bold text-xs ${
+                      theme === 'dark' ? 'border-slate-800/60 text-emerald-400' : 'border-slate-200 text-emerald-700'
+                    }`}>
                       <span>Total Invoice Bill</span>
                       <span>₹{scanResult.grandTotal}</span>
                     </div>
@@ -2797,14 +2841,20 @@ export default function WebApp() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="bg-red-950/60 border border-red-500/40 text-red-400 p-4 rounded-2xl text-center space-y-2">
+                <div className={`border p-4 rounded-2xl text-center space-y-2 ${
+                  theme === 'dark' ? 'bg-red-950/60 border-red-500/40 text-red-400' : 'bg-red-50 border-red-200 text-red-700'
+                }`}>
                   <AlertTriangle className="w-10 h-10 mx-auto text-red-500 animate-bounce" />
                   <h4 className="font-bold text-sm">Access Denied & Token Blocked</h4>
-                  <p className="text-xs text-slate-300 leading-relaxed">{scanResult.message}</p>
+                  <p className={`text-xs leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>{scanResult.message}</p>
                 </div>
 
-                <div className="bg-slate-900/40 p-3.5 rounded-xl border border-slate-800 text-[11px] text-slate-400 leading-relaxed space-y-1">
-                  <span className="font-bold text-red-400 block">Safeguards enforced:</span>
+                <div className={`p-3.5 rounded-xl border text-[11px] leading-relaxed space-y-1 ${
+                  theme === 'dark' 
+                    ? 'bg-slate-900/40 border-slate-800 text-slate-400' 
+                    : 'bg-slate-50 border-slate-200 text-slate-600'
+                }`}>
+                  <span className={`font-bold block ${theme === 'dark' ? 'text-red-400' : 'text-red-600'}`}>Safeguards enforced:</span>
                   <span>• Reused screenshots / tokens are automatically identified and rejected.</span>
                   <span>• Order must belong to this specific canteen shop.</span>
                   <span>• Verify order is in "Ready for Pickup" status before verification.</span>
