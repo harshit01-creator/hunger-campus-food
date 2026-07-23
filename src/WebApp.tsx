@@ -8,6 +8,7 @@ import {
   Video, VideoOff, Sun, Moon, Globe, Star, Share2, Copy, TrendingUp, Tag, Percent, Ban, RotateCcw
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { Html5Qrcode } from 'html5-qrcode';
 import kprLogo from './assets/logo.png';
 import { 
   UserAccount, UserRole, SUPER_ADMIN_EMAIL, SUPER_ADMIN_PASSWORD,
@@ -180,10 +181,13 @@ export default function WebApp() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
 
   // Menu Editor Modal State
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<FoodItem | null>(null);
+  const [imageSuggestions, setImageSuggestions] = useState<string[]>([]);
+  const [isSearchingImages, setIsSearchingImages] = useState(false);
   const [itemForm, setItemForm] = useState<{
     name: string;
     category: string;
@@ -216,6 +220,7 @@ export default function WebApp() {
   const [isAddShopkeeperOpen, setIsAddShopkeeperOpen] = useState(false);
   const [newShopkeeperName, setNewShopkeeperName] = useState('');
   const [newShopkeeperEmail, setNewShopkeeperEmail] = useState('');
+  const [newShopkeeperPassword, setNewShopkeeperPassword] = useState('');
   const [newShopkeeperShopId, setNewShopkeeperShopId] = useState(() => `shop-${Date.now()}`);
   const [newShopName, setNewShopName] = useState('');
 
@@ -224,8 +229,7 @@ export default function WebApp() {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [scanResult, setScanResult] = useState<QrHandoverResult | null>(null);
   const [simulatedQrInput, setSimulatedQrInput] = useState('');
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const qrScannerRef = useRef<Html5Qrcode | null>(null);
 
   // Shopkeeper Dashboard Sub-Tab
   const [shopkeeperSubTab, setShopkeeperSubTab] = useState<'orders' | 'analytics'>('orders');
@@ -255,43 +259,153 @@ export default function WebApp() {
     return () => clearInterval(interval);
   }, [currentOrder?.status]);
 
-  // LIVE CAMERA ACCESS ENGINE (WebRTC getUserMedia)
+  // DEBOUNCED FOOD IMAGE AUTO-FETCH ENGINE
+  useEffect(() => {
+    if (!isItemModalOpen || !itemForm.name || itemForm.name.trim().length < 3) {
+      setImageSuggestions([]);
+      return;
+    }
+
+    const handler = setTimeout(async () => {
+      setIsSearchingImages(true);
+      const query = itemForm.name.trim();
+      const apiKey = (import.meta as any).env?.VITE_UNSPLASH_ACCESS_KEY || (import.meta as any).env?.VITE_IMAGE_SEARCH_API_KEY || '';
+
+      try {
+        if (apiKey && apiKey !== 'YOUR_UNSPLASH_KEY') {
+          // Live API Fetch from Unsplash
+          const response = await fetch(
+            `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query + ' food')}&per_page=4&client_id=${apiKey}`
+          );
+          if (response.ok) {
+            const data = await response.json();
+            if (data.results && data.results.length > 0) {
+              const urls = data.results.map((img: any) => img.urls.regular);
+              setImageSuggestions(urls);
+              setIsSearchingImages(false);
+              return;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Image Search] Unsplash API error, falling back:', err);
+      }
+
+      // Fallback matching logic for offline / no-key demoing
+      const lowerQuery = query.toLowerCase();
+      let matchedImages: string[] = [];
+
+      if (lowerQuery.includes('dosa') || lowerQuery.includes('idli') || lowerQuery.includes('vada') || lowerQuery.includes('sambar') || lowerQuery.includes('south')) {
+        matchedImages = [
+          'https://images.unsplash.com/photo-1668236543090-82eba5ee5976?w=500&auto=format&fit=crop&q=80', // Dosa
+          'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=500&auto=format&fit=crop&q=80', // South indian combo
+          'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=500&auto=format&fit=crop&q=80', // Vada Sambar
+          'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?w=500&auto=format&fit=crop&q=80'  // Madras meal
+        ];
+      } else if (lowerQuery.includes('burger') || lowerQuery.includes('sandwich') || lowerQuery.includes('pizza') || lowerQuery.includes('fries') || lowerQuery.includes('fast')) {
+        matchedImages = [
+          'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=80', // Burger
+          'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=500&auto=format&fit=crop&q=80', // Pizza
+          'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=500&auto=format&fit=crop&q=80', // Sandwich
+          'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=500&auto=format&fit=crop&q=80'  // Fries
+        ];
+      } else if (lowerQuery.includes('tea') || lowerQuery.includes('coffee') || lowerQuery.includes('juice') || lowerQuery.includes('shake') || lowerQuery.includes('drink') || lowerQuery.includes('beverage')) {
+        matchedImages = [
+          'https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=500&auto=format&fit=crop&q=80', // Tea/Coffee
+          'https://images.unsplash.com/photo-1541658016709-82535e94bc69?w=500&auto=format&fit=crop&q=80', // Fresh juice
+          'https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=500&auto=format&fit=crop&q=80', // Milkshake
+          'https://images.unsplash.com/photo-1508253730747-e839c575fa3d?w=500&auto=format&fit=crop&q=80'  // Filter Coffee
+        ];
+      } else if (lowerQuery.includes('roti') || lowerQuery.includes('paneer') || lowerQuery.includes('curry') || lowerQuery.includes('rice') || lowerQuery.includes('biryani') || lowerQuery.includes('masala')) {
+        matchedImages = [
+          'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=500&auto=format&fit=crop&q=80', // Curry
+          'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=500&auto=format&fit=crop&q=80', // Rice
+          'https://images.unsplash.com/photo-1633945274405-b6c8069047b0?w=500&auto=format&fit=crop&q=80', // Paneer Butter Masala
+          'https://images.unsplash.com/photo-1645177625172-595e25c1620f?w=500&auto=format&fit=crop&q=80'  // Biryani
+        ];
+      } else if (lowerQuery.includes('cake') || lowerQuery.includes('ice') || lowerQuery.includes('sweet') || lowerQuery.includes('dessert') || lowerQuery.includes('chocolate')) {
+        matchedImages = [
+          'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=500&auto=format&fit=crop&q=80', // Dessert
+          'https://images.unsplash.com/photo-1563729784474-d77dbb933a9e?w=500&auto=format&fit=crop&q=80', // Ice Cream
+          'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=500&auto=format&fit=crop&q=80', // Cake
+          'https://images.unsplash.com/photo-1587314168485-3236d6710814?w=500&auto=format&fit=crop&q=80'  // Waffles
+        ];
+      } else {
+        // Generic food fallback
+        matchedImages = [
+          'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=500&auto=format&fit=crop&q=80', // Generic food 1
+          'https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=500&auto=format&fit=crop&q=80', // Generic food 2
+          'https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=500&auto=format&fit=crop&q=80', // Generic food 3
+          'https://images.unsplash.com/photo-1476224203421-9ac39bcb3327?w=500&auto=format&fit=crop&q=80'  // Generic food 4
+        ];
+      }
+
+      setImageSuggestions(matchedImages);
+      setIsSearchingImages(false);
+    }, 1000);
+
+    return () => clearTimeout(handler);
+  }, [itemForm.name, isItemModalOpen]);
+
+  // LIVE CAMERA ACCESS ENGINE (html5-qrcode programmatically)
   const startCameraScanner = async () => {
     setCameraError(null);
     setIsCameraActive(true);
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera access API is not supported on this browser or requires an HTTPS connection.');
-      }
+    
+    // Allow DOM to mount the #qr-reader element
+    setTimeout(async () => {
+      try {
+        const qrContainer = document.getElementById('qr-reader');
+        if (!qrContainer) {
+          throw new Error('Scanner container element (#qr-reader) not found in DOM.');
+        }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-      });
+        const html5QrCode = new Html5Qrcode("qr-reader");
+        qrScannerRef.current = html5QrCode;
 
-      mediaStreamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          {
+            fps: 10,
+            qrbox: (width, height) => {
+              const size = Math.min(width, height) * 0.85;
+              return { width: size, height: size };
+            }
+          },
+          (qrCodeMessage) => {
+            console.log("QR Code Decoded:", qrCodeMessage);
+            processQrScanHandover(qrCodeMessage);
+          },
+          (errorMessage) => {
+            // Ignore normal frame decode errors
+          }
+        );
+      } catch (err: any) {
+        console.warn('[Camera] Scanner startup error:', err);
+        setCameraError(err.message || 'Camera access denied — please allow camera permissions in browser settings.');
+        setIsCameraActive(false);
       }
-    } catch (err: any) {
-      console.warn('[Camera] Permission or access error:', err);
-      setCameraError(err.message || 'Camera access denied — please allow camera permissions in browser settings.');
-      setIsCameraActive(false);
-    }
+    }, 150);
   };
 
   const stopCameraScanner = () => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(track => track.stop());
-      mediaStreamRef.current = null;
+    if (qrScannerRef.current) {
+      const scanner = qrScannerRef.current;
+      qrScannerRef.current = null;
+      if (scanner.isScanning) {
+        scanner.stop().catch(err => console.warn('[Camera] Stop error:', err));
+      }
     }
     setIsCameraActive(false);
   };
 
   useEffect(() => {
     return () => {
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      if (qrScannerRef.current) {
+        const scanner = qrScannerRef.current;
+        if (scanner.isScanning) {
+          scanner.stop().catch(err => console.warn('[Camera] Unmount stop error:', err));
+        }
       }
     };
   }, []);
@@ -342,6 +456,7 @@ export default function WebApp() {
   // AUTH SUBMISSION WITH STRICT CASE-SENSITIVE SUPER ADMIN REDIRECT
   const handleAuthSubmit = async (e?: React.FormEvent, directEmail?: string, directPassword?: string, directShopId?: string) => {
     if (e) e.preventDefault();
+    if (isAuthLoading) return;
     setAuthError(null);
 
     // Pass raw credentials without trimming or lowercasing beforehand for Super Admin check
@@ -353,23 +468,31 @@ export default function WebApp() {
       return;
     }
 
-    const res = await authenticateUser(targetEmail, targetPassword, authTab);
-    if (res.success && res.user) {
-      const finalUser: UserAccount = {
-        ...res.user,
-        shopId: directShopId || res.user.shopId || 'shop-1'
-      };
-      setCurrentUser(finalUser);
+    setIsAuthLoading(true);
+    try {
+      const res = await authenticateUser(targetEmail, targetPassword, authTab);
+      if (res.success && res.user) {
+        const finalUser: UserAccount = {
+          ...res.user,
+          shopId: directShopId || res.user.shopId || 'shop-1'
+        };
+        setCurrentUser(finalUser);
 
-      if (finalUser.role === 'super_admin') {
-        setActiveTab('admin');
-      } else if (finalUser.role === 'shopkeeper' || authTab === 'shopkeeper') {
-        setActiveTab('owner');
+        if (finalUser.role === 'super_admin') {
+          setActiveTab('admin');
+        } else if (finalUser.role === 'shopkeeper' || authTab === 'shopkeeper') {
+          setActiveTab('owner');
+        } else {
+          setActiveTab('home');
+        }
       } else {
-        setActiveTab('home');
+        setAuthError(res.message || 'Invalid email or password.');
       }
-    } else {
-      setAuthError(res.message || 'Invalid email or password.');
+    } catch (err: any) {
+      console.error('[Auth Submit Exception]:', err);
+      setAuthError('An unexpected database connection error occurred. Please try again.');
+    } finally {
+      setIsAuthLoading(false);
     }
   };
 
@@ -531,13 +654,89 @@ export default function WebApp() {
   };
 
   // QR AUTO HANDOVER ENGINE WITH FRESH SERVER FETCH AND SINGLE-USE BLOCK
+  // QR AUTO HANDOVER ENGINE WITH FRESH SERVER FETCH AND SINGLE-USE BLOCK
   const processQrScanHandover = async (scannedRaw: string) => {
     setScanResult(null);
     const loggedInShopId = currentUser?.shopId || 'shop-1';
     const shopOwnerName = currentUser?.name || 'Canteen Manager';
 
     // Call server-side verification in order service
-    const apiRes = await verifyAndProcessQrHandoverApi(scannedRaw, loggedInShopId, shopOwnerName);
+    let apiRes = await verifyAndProcessQrHandoverApi(scannedRaw, loggedInShopId, shopOwnerName);
+    
+    // Fallback locally if Supabase connection fails or is unconfigured
+    if (!apiRes.success && (!apiRes.message || apiRes.message.includes('Error') || apiRes.message.includes('failed') || apiRes.message.includes('not found') || apiRes.message.includes('FetchError') || apiRes.message.includes('placeholder'))) {
+      console.log('[Scanner Fallback] Supabase failed/placeholder active. Verifying QR locally...');
+      let parsed: any;
+      try {
+        parsed = JSON.parse(scannedRaw);
+      } catch {
+        parsed = { orderId: scannedRaw.trim() };
+      }
+      const targetOrderId = parsed.orderId || parsed.id || scannedRaw.trim();
+      const localOrder = ordersHistory.find(o => o.id === targetOrderId);
+
+      if (localOrder) {
+        if (localOrder.shopId !== loggedInShopId) {
+          apiRes = { success: false, message: `Access Denied: Order #${targetOrderId} belongs to another shop.` };
+        } else if (localOrder.status === 'Completed') {
+          apiRes = { 
+            success: false, 
+            message: `⚠️ DUPLICATE SCAN BLOCKED: Order #${targetOrderId} has already been handed over!`,
+            orderId: targetOrderId,
+            shopName: localOrder.shopName,
+            paymentStatus: localOrder.paymentStatus,
+            customerName: localOrder.customerName,
+            items: localOrder.items.map(i => ({ id: i.id, name: i.name, price: i.discountedPrice, qty: i.qty })),
+            grandTotal: localOrder.grandTotal
+          };
+        } else if (localOrder.status === 'Cancelled') {
+          apiRes = { 
+            success: false, 
+            message: `Order #${targetOrderId} was CANCELLED. Handover blocked.`,
+            orderId: targetOrderId,
+            shopName: localOrder.shopName,
+            paymentStatus: localOrder.paymentStatus,
+            customerName: localOrder.customerName,
+            items: localOrder.items.map(i => ({ id: i.id, name: i.name, price: i.discountedPrice, qty: i.qty })),
+            grandTotal: localOrder.grandTotal
+          };
+        } else if (localOrder.status !== 'Ready for Pickup') {
+          apiRes = { 
+            success: false, 
+            message: `Order #${targetOrderId} is currently '${localOrder.status}'. It must be marked 'Ready for Pickup' before handover.`,
+            orderId: targetOrderId,
+            shopName: localOrder.shopName,
+            paymentStatus: localOrder.paymentStatus,
+            customerName: localOrder.customerName,
+            items: localOrder.items.map(i => ({ id: i.id, name: i.name, price: i.discountedPrice, qty: i.qty })),
+            grandTotal: localOrder.grandTotal
+          };
+        } else if (localOrder.paymentStatus !== 'Paid') {
+          apiRes = { 
+            success: false, 
+            message: `⚠️ PAYMENT NOT RECEIVED: Order #${targetOrderId} is unpaid.`,
+            orderId: targetOrderId,
+            shopName: localOrder.shopName,
+            paymentStatus: localOrder.paymentStatus,
+            customerName: localOrder.customerName,
+            items: localOrder.items.map(i => ({ id: i.id, name: i.name, price: i.discountedPrice, qty: i.qty })),
+            grandTotal: localOrder.grandTotal
+          };
+        } else {
+          apiRes = {
+            success: true,
+            message: `🎉 Order #${targetOrderId} verified & marked as Handed Over!`,
+            orderId: targetOrderId,
+            shopName: localOrder.shopName,
+            paymentStatus: 'Paid',
+            customerName: localOrder.customerName,
+            items: localOrder.items.map(i => ({ id: i.id, name: i.name, price: i.discountedPrice, qty: i.qty })),
+            grandTotal: localOrder.grandTotal,
+            transactionId: localOrder.transactionId || 'LOCAL-TXN-12345'
+          };
+        }
+      }
+    }
     
     if (apiRes.success) {
       const timeHanded = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -576,8 +775,8 @@ export default function WebApp() {
   const handleAddShopkeeper = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      if (!newShopkeeperEmail || !newShopName) {
-        alert('⚠️ Please fill in all required fields (Shopkeeper Email & Canteen Shop Name).');
+      if (!newShopkeeperEmail || !newShopName || !newShopkeeperPassword) {
+        alert('⚠️ Please fill in all required fields (Shopkeeper Email, Password & Canteen Shop Name).');
         return;
       }
 
@@ -586,7 +785,7 @@ export default function WebApp() {
         ? newShopkeeperShopId.trim()
         : `shop-${Date.now()}`;
 
-      const res = await createShopkeeperAccount(newShopkeeperName, newShopkeeperEmail, targetShopId);
+      const res = await createShopkeeperAccount(newShopkeeperName, newShopkeeperEmail, targetShopId, newShopkeeperPassword);
       
       if (res.success) {
         const createdShopName = newShopName.trim();
@@ -606,6 +805,7 @@ export default function WebApp() {
         setIsAddShopkeeperOpen(false);
         setNewShopkeeperName('');
         setNewShopkeeperEmail('');
+        setNewShopkeeperPassword('');
         setNewShopName('');
         setNewShopkeeperShopId(`shop-${Date.now()}`);
       } else {
@@ -1017,11 +1217,26 @@ export default function WebApp() {
 
             <button 
               type="submit"
-              className={`w-full text-white font-extrabold py-3.5 rounded-2xl text-xs shadow-xl transition transform active:scale-95 ${
+              disabled={isAuthLoading}
+              className={`w-full text-white font-extrabold py-3.5 rounded-2xl text-xs shadow-xl transition transform active:scale-95 flex items-center justify-center gap-2 ${
+                isAuthLoading ? 'opacity-50 cursor-not-allowed' : ''
+              } ${
                 authTab === 'shopkeeper' ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/25' : 'bg-gradient-to-r from-blue-700 to-emerald-600 hover:opacity-95 shadow-blue-700/25'
               }`}
             >
-              {t('loginButton', currentLang)} &rarr;
+              {isAuthLoading ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>Processing...</span>
+                </>
+              ) : (
+                <>
+                  {t('loginButton', currentLang)} &rarr;
+                </>
+              )}
             </button>
           </form>
 
@@ -1715,15 +1930,56 @@ export default function WebApp() {
                     <div className={`p-4 rounded-2xl border text-center space-y-3 relative overflow-hidden flex flex-col justify-center min-h-[220px] ${
                       theme === 'dark' ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-50 border-slate-200'
                     }`}>
-                      {isCameraActive ? (
+                      {cameraError ? (
+                        <div className="p-3 bg-red-950/80 border border-red-500/40 text-red-300 rounded-xl space-y-3 text-xs">
+                          <div className="flex items-center justify-center gap-1.5 font-bold">
+                            <AlertCircle className="w-4 h-4 text-red-400" />
+                            <span>Scanner Camera Error</span>
+                          </div>
+                          <p className="text-[10px] leading-relaxed text-slate-400">{cameraError}</p>
+                          
+                          <div className="border-t border-slate-800/60 pt-2.5 space-y-2">
+                            <span className="font-bold text-[10px] text-slate-300 block uppercase">Manual Token Fallback</span>
+                            <div className="flex gap-1.5">
+                              <input 
+                                type="text"
+                                placeholder="e.g. HUNGER-1234"
+                                id="manual-fallback-token"
+                                className={`flex-1 border rounded-lg px-2 py-1.5 text-[11px] focus:outline-none font-mono ${
+                                  theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-850'
+                                }`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const token = (document.getElementById('manual-fallback-token') as HTMLInputElement)?.value;
+                                  if (token && token.trim()) {
+                                    processQrScanHandover(token.trim());
+                                  } else {
+                                    alert('Please enter a valid token number.');
+                                  }
+                                }}
+                                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg text-[10px]"
+                              >
+                                Verify
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <button
+                            onClick={() => setCameraError(null)}
+                            className="text-[10px] text-slate-400 underline block mx-auto pt-1 hover:text-slate-250"
+                          >
+                            Reset Scanner Camera
+                          </button>
+                        </div>
+                      ) : isCameraActive ? (
                         <div className="space-y-3">
                           <div className="relative mx-auto rounded-xl overflow-hidden max-w-[280px] border-4 border-emerald-500/30 aspect-square flex items-center justify-center bg-black">
-                            <video 
-                              ref={videoRef} 
-                              className="w-full h-full object-cover scale-x-[-1]" 
-                            />
+                            {/* Target for html5-qrcode */}
+                            <div id="qr-reader" className="w-full h-full object-cover" />
                             {/* Scanning Reticle */}
-                            <div className="absolute inset-4 border-2 border-dashed border-emerald-400 animate-pulse rounded-lg pointer-events-none" />
+                            <div className="absolute inset-4 border-2 border-dashed border-emerald-400 animate-pulse rounded-lg pointer-events-none z-10" />
                           </div>
                           <button 
                             onClick={stopCameraScanner}
@@ -1737,7 +1993,7 @@ export default function WebApp() {
                           <Camera className="w-10 h-10 mx-auto text-slate-500" />
                           <div className="space-y-1">
                             <h4 className="font-bold text-xs">Verify via Device Camera</h4>
-                            <p className="text-[10px] text-slate-400 max-w-xs mx-auto">Access WebRTC scanner to verify customer collection receipt QR code instantly</p>
+                            <p className="text-[10px] text-slate-400 max-w-xs mx-auto">Access HTML5 WebRTC camera scanner to verify customer collection receipt QR code instantly</p>
                           </div>
                           <button 
                             onClick={startCameraScanner}
@@ -2328,6 +2584,20 @@ export default function WebApp() {
               </div>
 
               <div className="space-y-1">
+                <label className="text-xs font-semibold">Shopkeeper Password</label>
+                <input 
+                  type="password" 
+                  required
+                  value={newShopkeeperPassword}
+                  onChange={(e) => setNewShopkeeperPassword(e.target.value)}
+                  placeholder="Enter shopkeeper account password..."
+                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-purple-500 ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
                 <label className="text-xs font-semibold">New Canteen Shop Name</label>
                 <input 
                   type="text" 
@@ -2519,6 +2789,57 @@ export default function WebApp() {
                     theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
                   }`}
                 />
+              </div>
+
+              {/* Image selection and Custom URL Input */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold">Food Item Image URL</label>
+                  {isSearchingImages && (
+                    <span className="text-[10px] text-blue-500 animate-pulse font-medium">Searching suggestions...</span>
+                  )}
+                </div>
+                <input 
+                  type="url" 
+                  value={itemForm.image}
+                  onChange={(e) => setItemForm({ ...itemForm, image: e.target.value })}
+                  placeholder="Paste custom image URL or select a suggestion below..."
+                  className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+
+                {imageSuggestions.length > 0 && (
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Suggested Images (Click to select)</span>
+                    <div className="grid grid-cols-4 gap-2">
+                      {imageSuggestions.map((url, idx) => {
+                        const isSelected = itemForm.image === url;
+                        return (
+                          <div 
+                            key={idx}
+                            onClick={() => setItemForm({ ...itemForm, image: url })}
+                            className={`relative rounded-xl overflow-hidden aspect-video cursor-pointer border-2 transition ${
+                              isSelected ? 'border-blue-500 shadow-md scale-95 shadow-blue-500/25' : 'border-slate-800 hover:border-slate-600'
+                            }`}
+                          >
+                            <img src={url} alt="suggestion" className="w-full h-full object-cover" />
+                            {isSelected && (
+                              <div className="absolute inset-0 bg-blue-600/25 flex items-center justify-center">
+                                <span className="bg-blue-600 text-white rounded-full p-0.5 text-[8px] font-bold">✓</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {(!(import.meta as any).env?.VITE_UNSPLASH_ACCESS_KEY && !(import.meta as any).env?.VITE_IMAGE_SEARCH_API_KEY) && (
+                      <p className="text-[9px] text-slate-500 italic mt-1 leading-normal">
+                        💡 Live search keys missing. To enable live web results, add <b>VITE_UNSPLASH_ACCESS_KEY</b> to your environment. Showing matches based on item tags.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -2796,40 +3117,49 @@ export default function WebApp() {
                   <p className={`text-[11px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Marked as completed & disabled QR token in server database</p>
                 </div>
 
-                <div className={`p-4 rounded-2xl border space-y-3 ${
+                <div className={`p-4 rounded-2xl border space-y-3.5 ${
                   theme === 'dark' ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
                 }`}>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="grid grid-cols-2 gap-3 text-xs border-b pb-3 border-slate-800/40">
                     <div>
-                      <span className={`block text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>CUSTOMER NAME</span>
+                      <span className={`block text-[9px] uppercase tracking-wider font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Canteen Shop</span>
+                      <span className="font-extrabold text-blue-500">{scanResult.shopName || 'Campus Canteen'}</span>
+                    </div>
+                    <div>
+                      <span className={`block text-[9px] uppercase tracking-wider font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Token Number</span>
+                      <span className="font-mono font-extrabold text-emerald-500">{scanResult.orderId}</span>
+                    </div>
+                    <div>
+                      <span className={`block text-[9px] uppercase tracking-wider font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Customer Name</span>
                       <span className="font-bold">{scanResult.customerName || 'Student Customer'}</span>
                     </div>
                     <div>
-                      <span className={`block text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>ORDER ID</span>
-                      <span className="font-mono font-bold text-blue-500">{scanResult.orderId}</span>
-                    </div>
-                    <div>
-                      <span className={`block text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>PAYMENT METHOD</span>
-                      <span className="font-bold">Online UPI (PAID)</span>
-                    </div>
-                    <div>
-                      <span className={`block text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>TRANSACTION REFERENCE</span>
-                      <span className={`font-mono text-[10px] truncate block ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`}>{scanResult.transactionId}</span>
+                      <span className={`block text-[9px] uppercase tracking-wider font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Payment Status</span>
+                      <span className={`font-extrabold px-2 py-0.5 rounded text-[10px] inline-block ${
+                        scanResult.paymentStatus === 'Paid' 
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                          : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                      }`}>
+                        {scanResult.paymentStatus === 'Paid' ? '✅ Paid' : '❌ Not Paid'}
+                      </span>
                     </div>
                   </div>
 
-                  <div className={`border-t pt-2 space-y-2 ${theme === 'dark' ? 'border-slate-800/80' : 'border-slate-200'}`}>
-                    <span className={`text-[10px] uppercase font-bold block ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Items Summary</span>
-                    {scanResult.items?.map((item: any, idx: number) => (
-                      <div key={idx} className="flex justify-between text-xs font-medium">
-                        <span>{item.qty}x {item.name}</span>
-                        <span>₹{item.price * item.qty}</span>
-                      </div>
-                    ))}
-                    <div className={`border-t pt-2 flex justify-between font-bold text-xs ${
-                      theme === 'dark' ? 'border-slate-800/60 text-emerald-400' : 'border-slate-200 text-emerald-700'
+                  <div className="space-y-2">
+                    <span className={`text-[10px] uppercase font-bold block tracking-wider ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Items Ordered</span>
+                    <div className="max-h-[150px] overflow-y-auto space-y-1">
+                      {scanResult.items?.map((item: any, idx: number) => (
+                        <div key={idx} className="flex justify-between text-xs font-semibold">
+                          <span>{item.qty}x {item.name}</span>
+                          <span>₹{item.price * item.qty}</span>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    <div className={`border-t pt-2 flex justify-between font-extrabold text-sm ${
+                      theme === 'dark' ? 'border-slate-800/80 text-emerald-400' : 'border-slate-200 text-emerald-700'
                     }`}>
-                      <span>Total Invoice Bill</span>
+                      <span>Grand Total Bill</span>
                       <span>₹{scanResult.grandTotal}</span>
                     </div>
                   </div>

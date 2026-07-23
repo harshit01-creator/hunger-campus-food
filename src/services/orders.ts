@@ -201,6 +201,7 @@ export interface QrHandoverResult {
   grandTotal?: number;
   customerName?: string;
   createdAt?: number;
+  shopName?: string;
 }
 
 /** QR-BASED AUTO HANDOVER CONFIRMATION & PAYMENT STATUS CHECK */
@@ -238,13 +239,29 @@ export async function verifyAndProcessQrHandover(
       return { success: false, message: `Access Denied: Order #${targetOrderId} belongs to another shop.` };
     }
 
+    // Fetch shop name
+    let shopName = 'Campus Canteen';
+    try {
+      const { data: shopData } = await supabase.from('shops').select('name').eq('id', typedOrder.shopId).single();
+      if (shopData) {
+        shopName = shopData.name;
+      }
+    } catch (e) {
+      console.warn('Error fetching shop name:', e);
+    }
+
     if (typedOrder.status === 'Completed' || typedOrder.foodCollected) {
       return { 
         success: false, 
         message: `⚠️ DUPLICATE SCAN BLOCKED: Order #${targetOrderId} has already been handed over!`,
+        orderId: targetOrderId,
+        shopName,
         paymentStatus: typedOrder.paymentStatus,
         paymentMethod: typedOrder.paymentMethod,
-        transactionId: typedOrder.transactionId
+        transactionId: typedOrder.transactionId,
+        items: typedOrder.items,
+        grandTotal: typedOrder.grandTotal,
+        customerName: typedOrder.customerName || 'Student Customer'
       };
     }
 
@@ -252,8 +269,13 @@ export async function verifyAndProcessQrHandover(
       return {
         success: false,
         message: `Order #${targetOrderId} was CANCELLED by ${typedOrder.cancelledBy || 'user'}. Handover blocked.`,
+        orderId: targetOrderId,
+        shopName,
         paymentStatus: typedOrder.paymentStatus,
-        paymentMethod: typedOrder.paymentMethod
+        paymentMethod: typedOrder.paymentMethod,
+        items: typedOrder.items,
+        grandTotal: typedOrder.grandTotal,
+        customerName: typedOrder.customerName || 'Student Customer'
       };
     }
 
@@ -261,9 +283,14 @@ export async function verifyAndProcessQrHandover(
       return { 
         success: false, 
         message: `Order #${targetOrderId} is currently '${typedOrder.status}'. It must be marked 'Ready for Pickup' before handover.`,
+        orderId: targetOrderId,
+        shopName,
         paymentStatus: typedOrder.paymentStatus,
         paymentMethod: typedOrder.paymentMethod,
-        transactionId: typedOrder.transactionId
+        transactionId: typedOrder.transactionId,
+        items: typedOrder.items,
+        grandTotal: typedOrder.grandTotal,
+        customerName: typedOrder.customerName || 'Student Customer'
       };
     }
 
@@ -272,9 +299,13 @@ export async function verifyAndProcessQrHandover(
         success: false,
         message: `⚠️ PAYMENT NOT RECEIVED: Order #${targetOrderId} payment status is '${typedOrder.paymentStatus}'. Handover blocked.`,
         orderId: targetOrderId,
+        shopName,
         paymentStatus: typedOrder.paymentStatus,
         paymentMethod: typedOrder.paymentMethod,
-        transactionId: typedOrder.transactionId
+        transactionId: typedOrder.transactionId,
+        items: typedOrder.items,
+        grandTotal: typedOrder.grandTotal,
+        customerName: typedOrder.customerName || 'Student Customer'
       };
     }
 
@@ -294,7 +325,8 @@ export async function verifyAndProcessQrHandover(
       success: true, 
       message: `🎉 Order #${targetOrderId} verified & marked as Handed Over!`,
       orderId: targetOrderId,
-      paymentStatus: 'Paid',
+      shopName,
+      paymentStatus: typedOrder.paymentStatus,
       paymentMethod: typedOrder.paymentMethod,
       transactionId: typedOrder.transactionId,
       items: typedOrder.items,

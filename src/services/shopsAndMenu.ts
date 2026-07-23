@@ -237,10 +237,18 @@ export async function fetchShopsFromSupabase(): Promise<ShopAccount[]> {
     const { data, error } = await supabase.from('shops').select('*');
     if (!error && data) {
       if (data.length === 0) {
-        console.log('[Supabase] Database empty. Seeding INITIAL_SHOPS...');
-        await supabase.from('shops').insert(INITIAL_SHOPS);
-        saveShops(INITIAL_SHOPS);
-        return INITIAL_SHOPS;
+        // Only seed shops if user_accounts table is also completely empty (fresh project initialization)
+        const { data: usersData } = await supabase.from('user_accounts').select('id').limit(1);
+        if (!usersData || usersData.length === 0) {
+          console.log('[Supabase] Database empty. Seeding INITIAL_SHOPS...');
+          await supabase.from('shops').insert(INITIAL_SHOPS);
+          saveShops(INITIAL_SHOPS);
+          return INITIAL_SHOPS;
+        } else {
+          // Shops were deleted by admin! Save empty shops local and return empty.
+          saveShops([]);
+          return [];
+        }
       }
       const dbShops = data as ShopAccount[];
       saveShops(dbShops);
@@ -301,10 +309,18 @@ export async function fetchMenuItemsFromSupabase(): Promise<FoodItem[]> {
     const { data, error } = await supabase.from('food_items').select('*');
     if (!error && data) {
       if (data.length === 0) {
-        console.log('[Supabase] Database empty. Seeding INITIAL_MENU...');
-        await supabase.from('food_items').insert(INITIAL_MENU);
-        saveMenuItems(INITIAL_MENU);
-        return INITIAL_MENU;
+        // Only seed food items if user_accounts table is also completely empty
+        const { data: usersData } = await supabase.from('user_accounts').select('id').limit(1);
+        if (!usersData || usersData.length === 0) {
+          console.log('[Supabase] Database empty. Seeding INITIAL_MENU...');
+          await supabase.from('food_items').insert(INITIAL_MENU);
+          saveMenuItems(INITIAL_MENU);
+          return INITIAL_MENU;
+        } else {
+          // Menu items were deleted! Save empty menu local and return empty.
+          saveMenuItems([]);
+          return [];
+        }
       }
       const dbMenu = data as FoodItem[];
       saveMenuItems(dbMenu);

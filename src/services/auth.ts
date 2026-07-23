@@ -14,6 +14,7 @@ export interface UserAccount {
   shopId?: string;
   isActive: boolean;
   createdAt: number;
+  password?: string;
 }
 
 export const SUPER_ADMIN_EMAIL = 'harshit071111@gmail.com';
@@ -185,6 +186,11 @@ export async function authenticateUser(
   );
 
   if (foundUser) {
+    // Validate password if present on the account
+    if (foundUser.password && foundUser.password !== passwordInput) {
+      return { success: false, message: 'Invalid email or password.' };
+    }
+
     // STRICT ROLE LOCKING: Reject with generic invalid credentials if login form tab does not match user's registered role
     if (expectedLoginTab === 'customer' && foundUser.role !== 'customer') {
       return { success: false, message: 'Invalid email or password.' };
@@ -207,7 +213,8 @@ export async function authenticateUser(
       role: 'shopkeeper',
       shopId: `shop-${Date.now()}`,
       isActive: true,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      password: passwordInput
     };
     usersStore.push(newShopkeeper);
     await saveUserToSupabase(newShopkeeper);
@@ -221,7 +228,8 @@ export async function authenticateUser(
       name: normalizedEmail.split('@')[0],
       role: 'customer',
       isActive: true,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      password: passwordInput
     };
     usersStore.push(newCustomer);
     await saveUserToSupabase(newCustomer);
@@ -268,7 +276,8 @@ export async function registerCustomer(
 export async function createShopkeeperAccount(
   name: string,
   email: string,
-  shopId: string
+  shopId: string,
+  password?: string
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
   await fetchUsersFromSupabase();
   const normalizedEmail = email.trim().toLowerCase();
@@ -284,6 +293,7 @@ export async function createShopkeeperAccount(
     // Existing shopkeeper account -> Link to new shop ID
     existing.shopId = shopId;
     if (name) existing.name = name;
+    if (password) existing.password = password;
     await saveUserToSupabase(existing);
     return { success: true, user: existing };
   }
@@ -295,7 +305,8 @@ export async function createShopkeeperAccount(
     role: 'shopkeeper',
     shopId,
     isActive: true,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    password: password || '123456'
   };
 
   usersStore.push(newShopkeeper);
