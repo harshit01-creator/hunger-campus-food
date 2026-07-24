@@ -20,7 +20,8 @@ import {
   verifyAndProcessQrHandover as verifyAndProcessQrHandoverApi,
   acceptOrder as acceptOrderApi,
   cancelOrder as cancelOrderApi,
-  OrderDoc, PaymentStatus, PaymentMethod, QrHandoverResult, OrderStatus
+  OrderDoc, PaymentStatus, PaymentMethod, QrHandoverResult, OrderStatus,
+  supabase
 } from './services/orders';
 import {
   ShopAccount, FoodItem, loadShops, saveShops, loadMenuItems, saveMenuItems,
@@ -63,6 +64,167 @@ interface Order {
   cancelledAt?: string;
   cancellationReason?: string;
   appliedDiscount?: { code: string; title: string; amountSaved: number };
+}
+
+// DYNAMICAL CANVAS-BASED TRANSACTION RECEIPT GENERATOR ENGINE
+function generateReceiptImage(order: Order): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = 450;
+  
+  // Calculate dynamic height based on number of items
+  const itemHeight = 35;
+  const padding = 40;
+  const headerHeight = 180;
+  const footerHeight = 160;
+  canvas.height = headerHeight + (order.items.length * itemHeight) + footerHeight;
+  
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  
+  // Fill white background
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  // Outer decorative border
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(8, 8, canvas.width - 16, canvas.height - 16);
+  
+  // Receipt design styles
+  ctx.fillStyle = '#0f172a'; // slate-900
+  ctx.textAlign = 'center';
+  
+  // Draw Shop Name
+  ctx.font = 'bold 24px "Outfit", sans-serif';
+  ctx.fillText(order.shopName.toUpperCase(), canvas.width / 2, 50);
+  
+  // Subtitle
+  ctx.font = '600 12px "Inter", sans-serif';
+  ctx.fillStyle = '#64748b'; // slate-500
+  ctx.fillText('OFFICIAL CAMPUS MEAL RECEIPT', canvas.width / 2, 75);
+  
+  // Draw Dashed divider
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(25, 95);
+  ctx.lineTo(canvas.width - 25, 95);
+  ctx.stroke();
+  ctx.setLineDash([]); // Reset dashed line
+  
+  // Customer details and token
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#334155'; // slate-700
+  ctx.font = 'bold 13px "Inter", sans-serif';
+  ctx.fillText('Token ID:', 30, 118);
+  ctx.fillText('Customer:', 30, 138);
+  ctx.fillText('Ordered At:', 30, 158);
+  
+  ctx.font = 'bold 13px "Inter", sans-serif';
+  ctx.fillStyle = '#2563eb'; // blue-600 for token
+  const displayToken = order.id.split('-')[1] || order.id;
+  ctx.fillText(displayToken, 120, 118);
+  
+  ctx.fillStyle = '#0f172a';
+  ctx.font = '500 13px "Inter", sans-serif';
+  ctx.fillText(order.customerName, 120, 138);
+  
+  // Formatted date string
+  ctx.fillText(order.createdAt || new Date(order.createdAtTimestamp).toLocaleString(), 120, 158);
+  
+  // Another divider
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.beginPath();
+  ctx.moveTo(25, 175);
+  ctx.lineTo(canvas.width - 25, 175);
+  ctx.stroke();
+  
+  // Table headers
+  ctx.fillStyle = '#475569'; // slate-600
+  ctx.font = 'bold 12px "Inter", sans-serif';
+  ctx.fillText('ITEM DESCRIPTION', 30, 195);
+  ctx.textAlign = 'right';
+  ctx.fillText('QTY', canvas.width - 110, 195);
+  ctx.fillText('AMOUNT', canvas.width - 30, 195);
+  
+  // Table divider
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.beginPath();
+  ctx.moveTo(25, 205);
+  ctx.lineTo(canvas.width - 25, 205);
+  ctx.stroke();
+  
+  // Draw Items
+  let currentY = 228;
+  ctx.font = '500 13px "Inter", sans-serif';
+  ctx.fillStyle = '#0f172a';
+  
+  order.items.forEach(item => {
+    // Description (left-aligned)
+    ctx.textAlign = 'left';
+    ctx.fillText(item.name, 30, currentY);
+    
+    // Qty (right-aligned)
+    ctx.textAlign = 'right';
+    ctx.fillText(item.qty.toString(), canvas.width - 115, currentY);
+    
+    // Price calculation
+    const pricePerUnit = item.discountedPrice !== undefined ? item.discountedPrice : item.price;
+    
+    // Amount (right-aligned)
+    ctx.fillText(`₹${pricePerUnit * item.qty}`, canvas.width - 30, currentY);
+    
+    currentY += itemHeight;
+  });
+  
+  // Divider
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.beginPath();
+  ctx.moveTo(25, currentY - 5);
+  ctx.lineTo(canvas.width - 25, currentY - 5);
+  ctx.stroke();
+  
+  // Grand Total
+  currentY += 20;
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 15px "Outfit", sans-serif';
+  ctx.fillStyle = '#0f172a';
+  ctx.fillText('GRAND TOTAL BILL', 30, currentY);
+  
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#059669'; // emerald-600
+  ctx.fillText(`₹${order.grandTotal}`, canvas.width - 30, currentY);
+  
+  // Payment Status Box
+  currentY += 30;
+  const isPaid = order.paymentStatus === 'Paid';
+  ctx.fillStyle = isPaid ? '#10b981' : '#ef4444'; // Green or Red
+  
+  // Draw Rounded status pill
+  const pillWidth = 150;
+  const pillHeight = 32;
+  const pillX = (canvas.width - pillWidth) / 2;
+  const pillY = currentY;
+  
+  // Rounded rect
+  ctx.beginPath();
+  ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 6);
+  ctx.fill();
+  
+  // Text inside pill
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 13px "Inter", sans-serif';
+  ctx.fillText(isPaid ? '✓ PAID ONLINE' : '✗ NOT PAID', canvas.width / 2, currentY + 20);
+  
+  // Thank you note
+  currentY += 65;
+  ctx.fillStyle = '#94a3b8'; // slate-400
+  ctx.font = 'italic 11px "Inter", sans-serif';
+  ctx.fillText('Thank you for ordering with Hunger!', canvas.width / 2, currentY);
+  
+  return canvas.toDataURL('image/png');
 }
 
 export default function WebApp() {
@@ -371,6 +533,180 @@ export default function WebApp() {
     return () => clearTimeout(handler);
   }, [itemForm.name, isItemModalOpen]);
 
+  // NOTIFICATION PERMISSION REQUEST ENGINE
+  const requestNotificationPermission = async () => {
+    if (!('Notification' in window)) {
+      console.log('[Notification] Desktop notifications are not supported on this browser');
+      return;
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        console.log('[Notification] Permission granted.');
+        if (currentUser && currentUser.id) {
+          // Register service worker push subscription token if possible
+          if ('serviceWorker' in navigator) {
+            const registration = await navigator.serviceWorker.ready;
+            const sub = await registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: 'BEl62OhArIK1t7H8m9jiLIyF961o10g25sVN5qNJD1sy3Cj0FBsqNp_13Z4Zt9yS_J3G1rU'
+            }).catch(() => null);
+            
+            if (sub) {
+              const tokenStr = JSON.stringify(sub);
+              await supabase
+                .from('user_accounts')
+                .update({ pushToken: tokenStr })
+                .eq('id', currentUser.id);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Notification] Permission request failed:', e);
+    }
+  };
+
+  // Auto-request notification permissions upon customer login
+  useEffect(() => {
+    if (currentUser && currentUser.role === 'customer') {
+      requestNotificationPermission();
+    }
+  }, [currentUser?.id]);
+
+  // Real-time listener for "Food is Ready" notification triggers
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'customer') return;
+
+    const channel = supabase
+      .channel('public:orders:status-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+        },
+        async (payload: any) => {
+          const updatedOrder = payload.new;
+          if (updatedOrder.customerId === currentUser.id && updatedOrder.status === 'Ready for Pickup') {
+            const token = updatedOrder.orderId ? updatedOrder.orderId.split('-')[1] || updatedOrder.orderId : 'HUNGER-XXXX';
+            const shopName = updatedOrder.shopName || 'Campus Canteen';
+            
+            if ('Notification' in window && Notification.permission === 'granted') {
+              const notification = new Notification(`🍽️ Order Ready at ${shopName}!`, {
+                body: `Your order is ready for pickup! Token #${token}.`,
+                icon: '/assets/logo-gNUbfLJM.png',
+                tag: updatedOrder.orderId,
+                requireInteraction: true
+              });
+              
+              notification.onclick = () => {
+                window.focus();
+                const matchedOrder = ordersHistory.find(o => o.id === updatedOrder.orderId);
+                if (matchedOrder) {
+                  setCurrentOrder(matchedOrder);
+                } else {
+                  setCurrentOrder({
+                    id: updatedOrder.orderId,
+                    shopId: updatedOrder.shopId,
+                    shopName: updatedOrder.shopName || 'Campus Canteen',
+                    customerId: updatedOrder.customerId || currentUser.id,
+                    customerName: updatedOrder.customerName || currentUser.name,
+                    items: updatedOrder.items || [],
+                    grandTotal: updatedOrder.grandTotal || 0,
+                    paymentMethod: updatedOrder.paymentMethod || 'Online UPI',
+                    paymentStatus: updatedOrder.paymentStatus || 'Paid',
+                    status: updatedOrder.status || 'Ready for Pickup',
+                    createdAt: updatedOrder.createdAt || new Date().toLocaleString(),
+                    createdAtTimestamp: updatedOrder.createdAtTimestamp || Date.now(),
+                    estimatedMinutes: updatedOrder.estimatedMinutes || 10,
+                    qrToken: updatedOrder.qrToken || '',
+                    payeeUpiId: updatedOrder.payeeUpiId || ''
+                  });
+                }
+                setActiveTab('tracking');
+                notification.close();
+              };
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser, ordersHistory]);
+
+  // Listen for background SW clicked redirect instructions
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && event.data.action === 'openOrder') {
+        const orderId = event.data.orderId;
+        console.log('[SW Redirection click received] Opening order status screen:', orderId);
+        window.focus();
+        const matchedOrder = ordersHistory.find(o => o.id === orderId);
+        if (matchedOrder) {
+          setCurrentOrder(matchedOrder);
+        }
+        setActiveTab('tracking');
+      }
+    };
+    
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleMessage);
+    }
+    return () => {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleMessage);
+      }
+    };
+  }, [ordersHistory]);
+
+  // Trigger Web Push Notification to specific customer (OneSignal REST integration or local fallback)
+  const dispatchPushNotificationToCustomer = async (orderId: string, customerId: string, shopName: string) => {
+    try {
+      const { data: userData, error } = await supabase
+        .from('user_accounts')
+        .select('pushToken')
+        .eq('id', customerId)
+        .single();
+        
+      if (error || !userData || !userData.pushToken) {
+        console.log('[Push Notification] Customer has no registered push token/subscription.');
+        return;
+      }
+      
+      const sub = JSON.parse(userData.pushToken);
+      const token = orderId.split('-')[1] || orderId;
+      const messageText = `🍽️ Your order at ${shopName} is ready for pickup! Token #${token}.`;
+      
+      if (sub && sub.endpoint) {
+        console.log('[Push Notification] Dispatching web push to subscription endpoint:', sub.endpoint);
+        
+        // OneSignal integration if configured inside token
+        if (sub.oneSignalPlayerId) {
+          await fetch('https://onesignal.com/api/v1/notifications', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8'
+            },
+            body: JSON.stringify({
+              app_id: 'ONESIGNAL_APP_ID_GOES_HERE',
+              include_subscription_ids: [sub.oneSignalPlayerId],
+              contents: { en: messageText },
+              headings: { en: 'Order Ready! 🍽️' },
+              data: { orderId }
+            })
+          }).catch(err => console.warn('OneSignal API push error:', err));
+        }
+      }
+    } catch (e) {
+      console.warn('[Push Notification] Dispatch error:', e);
+    }
+  };
+
   // LIVE CAMERA ACCESS ENGINE (html5-qrcode programmatically)
   const startCameraScanner = async () => {
     setCameraError(null);
@@ -660,6 +996,15 @@ export default function WebApp() {
   // SHOPKEEPER "FOOD IS READY" ACTION (Moves Accepted -> Ready for Pickup)
   const handleShopkeeperFoodReady = async (orderIdToReady: string) => {
     await markFoodReadyApi(orderIdToReady);
+
+    // Find customer details from orders history to send real push notifications
+    const matchedOrder = ordersHistory.find(o => o.id === orderIdToReady);
+    if (matchedOrder) {
+      const activeShopId = currentUser?.shopId || matchedOrder.shopId || 'shop-1';
+      const activeShop = shops.find(s => s.id === activeShopId) || { name: 'Campus Canteen' };
+      dispatchPushNotificationToCustomer(orderIdToReady, matchedOrder.customerId || '', activeShop.name);
+    }
+
     if (currentOrder && currentOrder.id === orderIdToReady) {
       const updated: Order = { ...currentOrder, status: 'Ready for Pickup' };
       setCurrentOrder(updated);
@@ -1276,6 +1621,36 @@ export default function WebApp() {
         </div>
       </div>
     );
+  }
+
+  // Dynamically generate scan verification receipt image
+  let receiptImgSrc = '';
+  if (scanResult && scanResult.success) {
+    const matched = ordersHistory.find(o => o.id === scanResult.orderId);
+    const receiptOrder: Order = {
+      id: scanResult.orderId,
+      shopId: matched?.shopId || 'shop-1',
+      shopName: scanResult.shopName || matched?.shopName || 'Campus Canteen',
+      customerId: matched?.customerId || '',
+      customerName: scanResult.customerName || matched?.customerName || 'Student Customer',
+      items: (scanResult.items || matched?.items || []).map((i: any) => ({
+        ...i,
+        name: i.name || 'Food Item',
+        qty: i.qty || i.quantity || 1,
+        originalPrice: i.price || i.originalPrice || 0,
+        discountedPrice: i.price || i.discountedPrice || 0
+      })),
+      grandTotal: scanResult.grandTotal || matched?.grandTotal || 0,
+      paymentMethod: matched?.paymentMethod || 'Online UPI',
+      paymentStatus: (scanResult.paymentStatus as any) || matched?.paymentStatus || 'Paid',
+      status: 'Completed',
+      createdAt: matched?.createdAt || new Date().toLocaleString(),
+      createdAtTimestamp: matched?.createdAtTimestamp || Date.now(),
+      estimatedMinutes: matched?.estimatedMinutes || 10,
+      qrToken: matched?.qrToken || '',
+      payeeUpiId: matched?.payeeUpiId || ''
+    };
+    receiptImgSrc = generateReceiptImage(receiptOrder);
   }
 
   // LOGGED IN DASHBOARDS
@@ -3142,65 +3517,38 @@ export default function WebApp() {
 
             {scanResult.success ? (
               <div className="space-y-4">
-                <div className={`border p-3.5 rounded-2xl text-center space-y-1 ${
-                  theme === 'dark' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50/80 border-emerald-200 text-emerald-700'
+                <div className={`border p-3 rounded-2xl text-center space-y-0.5 ${
+                  theme === 'dark' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
                 }`}>
-                  <CheckCircle2 className={`w-8 h-8 mx-auto ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`} />
-                  <h4 className="font-bold text-sm">Order Verification Successful!</h4>
-                  <p className={`text-[11px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Marked as completed & disabled QR token in server database</p>
+                  <h4 className="font-bold text-xs flex items-center justify-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                    Order Handover Successful!
+                  </h4>
+                  <p className={`text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Marked as completed & disabled QR token</p>
                 </div>
 
-                <div className={`p-4 rounded-2xl border space-y-3.5 ${
-                  theme === 'dark' ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
-                }`}>
-                  <div className="grid grid-cols-2 gap-3 text-xs border-b pb-3 border-slate-800/40">
-                    <div>
-                      <span className={`block text-[9px] uppercase tracking-wider font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Canteen Shop</span>
-                      <span className="font-extrabold text-blue-500">{scanResult.shopName || 'Campus Canteen'}</span>
-                    </div>
-                    <div>
-                      <span className={`block text-[9px] uppercase tracking-wider font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Token Number</span>
-                      <span className="font-mono font-extrabold text-emerald-500">{scanResult.orderId}</span>
-                    </div>
-                    <div>
-                      <span className={`block text-[9px] uppercase tracking-wider font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Customer Name</span>
-                      <span className="font-bold">{scanResult.customerName || 'Student Customer'}</span>
-                    </div>
-                    <div>
-                      <span className={`block text-[9px] uppercase tracking-wider font-semibold ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Payment Status</span>
-                      <span className={`font-extrabold px-2 py-0.5 rounded text-[10px] inline-block ${
-                        scanResult.paymentStatus === 'Paid' 
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
-                          : 'bg-red-500/20 text-red-400 border border-red-500/30'
-                      }`}>
-                        {scanResult.paymentStatus === 'Paid' ? '✅ Paid' : '❌ Not Paid'}
-                      </span>
-                    </div>
+                <div className="flex flex-col items-center space-y-3">
+                  <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white shadow-lg p-2 max-w-full">
+                    {receiptImgSrc ? (
+                      <img 
+                        src={receiptImgSrc} 
+                        alt="Order Receipt" 
+                        className="max-h-[350px] object-contain rounded-xl w-full"
+                      />
+                    ) : (
+                      <div className="p-10 text-center text-slate-400">Loading receipt...</div>
+                    )}
                   </div>
-
-                  <div className="space-y-2">
-                    <span className={`text-[10px] uppercase font-bold block tracking-wider ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Items Ordered</span>
-                    <div className="max-h-[150px] overflow-y-auto space-y-1">
-                      {scanResult.items?.map((item: any, idx: number) => (
-                        <div key={idx} className="flex justify-between text-xs font-semibold">
-                          <span>{item.qty}x {item.name}</span>
-                          <span>₹{item.price * item.qty}</span>
-                        </div>
-                      ))}
-                    </div>
-                    
-                    <div className={`border-t pt-2 flex justify-between font-extrabold text-sm ${
-                      theme === 'dark' ? 'border-slate-800/80 text-emerald-400' : 'border-slate-200 text-emerald-700'
-                    }`}>
-                      <span>Grand Total Bill</span>
-                      <span>₹{scanResult.grandTotal}</span>
-                    </div>
-                  </div>
+                  {receiptImgSrc && (
+                    <a 
+                      href={receiptImgSrc} 
+                      download={`receipt-${scanResult.orderId}.png`} 
+                      className="w-full text-center bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors shadow-md shadow-emerald-950/20"
+                    >
+                      Download Receipt Image 📥
+                    </a>
+                  )}
                 </div>
-
-                <p className="text-[10px] text-center text-slate-500 italic">
-                  💡 This QR token has been marked as used. Duplicate scans will be blocked atomically.
-                </p>
               </div>
             ) : (
               <div className="space-y-4">
