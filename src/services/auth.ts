@@ -110,6 +110,45 @@ export async function fetchUsersFromSupabase(): Promise<UserAccount[]> {
   return local;
 }
 
+/** Fetches a single user by email address from Supabase with local storage fallback */
+export async function fetchUserByEmailFromSupabase(email: string): Promise<UserAccount | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  try {
+    const { data, error } = await supabase
+      .from('user_accounts')
+      .select('*')
+      .eq('email', normalizedEmail)
+      .limit(1);
+
+    if (!error && data && data.length > 0) {
+      return data[0] as UserAccount;
+    }
+  } catch (err) {
+    console.warn('[Supabase] fetchUserByEmailFromSupabase failed, checking local:', err);
+  }
+  
+  // Local storage fallback
+  const local = loadUsersLocal();
+  return local.find(u => u.email.toLowerCase() === normalizedEmail) || null;
+}
+
+/** Ensures that INITIAL_USERS is seeded in database if empty */
+export async function ensureUsersSeeded(): Promise<void> {
+  try {
+    const { count, error } = await supabase
+      .from('user_accounts')
+      .select('*', { count: 'exact', head: true });
+
+    if (!error && count === 0) {
+      console.log('[Supabase] Database empty. Seeding INITIAL_USERS...');
+      await supabase.from('user_accounts').insert(INITIAL_USERS);
+      saveUsersLocal(INITIAL_USERS);
+    }
+  } catch (err) {
+    console.warn('[Supabase] ensureUsersSeeded check failed:', err);
+  }
+}
+
 /** Saves or updates a user in the Supabase user_accounts table */
 export async function saveUserToSupabase(user: UserAccount): Promise<UserAccount[]> {
   try {
@@ -119,7 +158,7 @@ export async function saveUserToSupabase(user: UserAccount): Promise<UserAccount
     console.warn('[Supabase Upsert User Exception]:', err);
   }
   
-  const currentUsers = usersStore.length > 0 ? usersStore : loadUsersLocal();
+  const currentUsers = loadUsersLocal();
   const existingIndex = currentUsers.findIndex(u => u.id === user.id);
   let updated: UserAccount[];
   if (existingIndex >= 0) {
@@ -145,12 +184,6 @@ export async function authenticateUser(
   expectedLoginTab: 'customer' | 'shopkeeper'
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
 
-  // Synchronize users from database first
-  await fetchUsersFromSupabase();
-
-  console.log('[Auth Debug] Received raw email:', emailInput ? '[PROVIDED]' : '[EMPTY]');
-  console.log('[Auth Debug] Target Admin Email Check:', emailInput === SUPER_ADMIN_EMAIL);
-
   if (!emailInput || !passwordInput) {
     return { success: false, message: 'Please enter both email and password.' };
   }
@@ -175,15 +208,24 @@ export async function authenticateUser(
 
   const normalizedEmail = emailInput.trim().toLowerCase();
 
+  // Validate Gmail domain constraint
+  if (!normalizedEmail.endsWith('@gmail.com')) {
+    return { success: false, message: 'Only Gmail addresses are allowed.' };
+  }
+
   // If a Super Admin email attempt is made with wrong casing or password on Customer tab -> Generic fail
   if (normalizedEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
     return { success: false, message: 'Invalid email or password.' };
   }
 
-  // 2. Lookup existing registered user by normalized email
-  let foundUser = usersStore.find(
-    u => u.email.toLowerCase() === normalizedEmail && u.isActive
-  );
+  // 2. Fetch specific user from Supabase or local storage
+  let foundUser = await fetchUserByEmailFromSupabase(normalizedEmail);
+
+  if (!foundUser) {
+    // If not found, check if database is empty and seed it (rare, first-time only)
+    await ensureUsersSeeded();
+    foundUser = await fetchUserByEmailFromSupabase(normalizedEmail);
+  }
 
   if (foundUser) {
     // Validate password if present on the account
@@ -203,24 +245,7 @@ export async function authenticateUser(
     return { success: true, user: foundUser };
   }
 
-  // 3. New Registration on first login if not found
-  if (expectedLoginTab === 'shopkeeper') {
-    const shopName = normalizedEmail.split('@')[0].toUpperCase();
-    const newShopkeeper: UserAccount = {
-      id: `usr-s-${Date.now()}`,
-      email: normalizedEmail,
-      name: `${shopName} Owner`,
-      role: 'shopkeeper',
-      shopId: `shop-${Date.now()}`,
-      isActive: true,
-      createdAt: Date.now(),
-      password: passwordInput
-    };
-    usersStore.push(newShopkeeper);
-    await saveUserToSupabase(newShopkeeper);
-    return { success: true, user: newShopkeeper };
-  }
-
+  // 3. New Registration on first login if not found (Only for customers!)
   if (expectedLoginTab === 'customer') {
     const newCustomer: UserAccount = {
       id: `usr-c-${Date.now()}`,
@@ -231,11 +256,11 @@ export async function authenticateUser(
       createdAt: Date.now(),
       password: passwordInput
     };
-    usersStore.push(newCustomer);
     await saveUserToSupabase(newCustomer);
     return { success: true, user: newCustomer };
   }
 
+  // Block unregistered shopkeeper self-signup
   return { success: false, message: 'Invalid email or password.' };
 }
 
@@ -244,13 +269,17 @@ export async function registerCustomer(
   name: string,
   email: string
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
-  await fetchUsersFromSupabase();
   const normalizedEmail = email.trim().toLowerCase();
   if (normalizedEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
     return { success: false, message: 'This email address is reserved.' };
   }
 
-  let existing = usersStore.find(u => u.email.toLowerCase() === normalizedEmail);
+  // Enforce Gmail constraint
+  if (!normalizedEmail.endsWith('@gmail.com')) {
+    return { success: false, message: 'Only Gmail addresses are allowed.' };
+  }
+
+  let existing = await fetchUserByEmailFromSupabase(normalizedEmail);
   if (existing) {
     if (existing.role !== 'customer') {
       return { success: false, message: 'Email address already in use for a different role.' };
@@ -267,7 +296,6 @@ export async function registerCustomer(
     createdAt: Date.now()
   };
 
-  usersStore.push(newUser);
   await saveUserToSupabase(newUser);
   return { success: true, user: newUser };
 }
@@ -279,10 +307,14 @@ export async function createShopkeeperAccount(
   shopId: string,
   password?: string
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
-  await fetchUsersFromSupabase();
   const normalizedEmail = email.trim().toLowerCase();
 
-  const existing = usersStore.find(u => u.email.toLowerCase() === normalizedEmail);
+  // Enforce Gmail constraint
+  if (!normalizedEmail.endsWith('@gmail.com')) {
+    return { success: false, message: 'Only Gmail addresses are allowed.' };
+  }
+
+  const existing = await fetchUserByEmailFromSupabase(normalizedEmail);
   if (existing) {
     if (existing.role === 'customer') {
       return { 
@@ -309,7 +341,6 @@ export async function createShopkeeperAccount(
     password: password || '123456'
   };
 
-  usersStore.push(newShopkeeper);
   await saveUserToSupabase(newShopkeeper);
   return { success: true, user: newShopkeeper };
 }

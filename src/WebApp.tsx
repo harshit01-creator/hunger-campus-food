@@ -96,8 +96,30 @@ export default function WebApp() {
   const vercelAppUrl = 'https://hunger-campus-food.vercel.app';
 
   // Navigation & Session State
+  const SESSION_USER_KEY = 'hunger_session_user_v1';
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'menu' | 'tracking' | 'owner' | 'admin'>('home');
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SESSION_USER_KEY);
+      if (stored) {
+        const user = JSON.parse(stored) as UserAccount;
+        if (user && user.id && user.role) {
+          setCurrentUser(user);
+          if (user.role === 'super_admin') {
+            setActiveTab('admin');
+          } else if (user.role === 'shopkeeper') {
+            setActiveTab('owner');
+          } else {
+            setActiveTab('home');
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Session] Load session error:', e);
+    }
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedShopId, setSelectedShopId] = useState<string>('all');
@@ -269,13 +291,15 @@ export default function WebApp() {
     const handler = setTimeout(async () => {
       setIsSearchingImages(true);
       const query = itemForm.name.trim();
+      const cleanQuery = query.replace(/[^\w\s-]/gi, '').replace(/\s+/g, ' ').trim();
+      const searchQuery = `${cleanQuery} food dish`;
       const apiKey = (import.meta as any).env?.VITE_UNSPLASH_ACCESS_KEY || (import.meta as any).env?.VITE_IMAGE_SEARCH_API_KEY || '';
 
       try {
         if (apiKey && apiKey !== 'YOUR_UNSPLASH_KEY') {
-          // Live API Fetch from Unsplash
+          // Live API Fetch from Unsplash with cleaned query biased towards food dish photography
           const response = await fetch(
-            `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query + ' food')}&per_page=4&client_id=${apiKey}`
+            `https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery)}&per_page=4&client_id=${apiKey}`
           );
           if (response.ok) {
             const data = await response.json();
@@ -468,6 +492,13 @@ export default function WebApp() {
       return;
     }
 
+    // Frontend Gmail constraint validation
+    const checkEmail = targetEmail.trim().toLowerCase();
+    if (targetEmail !== SUPER_ADMIN_EMAIL && !checkEmail.endsWith('@gmail.com')) {
+      setAuthError('Only Gmail addresses are allowed.');
+      return;
+    }
+
     setIsAuthLoading(true);
     try {
       const res = await authenticateUser(targetEmail, targetPassword, authTab);
@@ -477,6 +508,7 @@ export default function WebApp() {
           shopId: directShopId || res.user.shopId || 'shop-1'
         };
         setCurrentUser(finalUser);
+        localStorage.setItem(SESSION_USER_KEY, JSON.stringify(finalUser));
 
         if (finalUser.role === 'super_admin') {
           setActiveTab('admin');
@@ -499,6 +531,7 @@ export default function WebApp() {
   const handleLogout = () => {
     stopCameraScanner();
     setCurrentUser(null);
+    localStorage.removeItem(SESSION_USER_KEY);
     setActiveTab('home');
   };
 
