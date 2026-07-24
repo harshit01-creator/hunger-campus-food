@@ -1,0 +1,81 @@
+-- 1. ALTER TABLE to add stock columns
+ALTER TABLE food_items ADD COLUMN IF NOT EXISTS is_sold_out BOOLEAN DEFAULT false NOT null;
+ALTER TABLE food_items ADD COLUMN IF NOT EXISTS stock_limit INTEGER DEFAULT null;
+ALTER TABLE food_items ADD COLUMN IF NOT EXISTS stock_remaining INTEGER DEFAULT null;
+
+-- 2. CREATE STORED PROCEDURE FOR ATOMIC ORDER PLACEMENT
+CREATE OR REPLACE FUNCTION place_order_atomic(
+  p_order_id TEXT,
+  p_shop_id TEXT,
+  p_items JSONB,
+  p_grand_total NUMERIC,
+  p_payment_method TEXT,
+  p_payment_status TEXT,
+  p_transaction_id TEXT,
+  p_paid_at BIGINT,
+  p_qr_token TEXT,
+  p_applied_discount JSONB,
+  p_created_at BIGINT
+) RETURNS JSONB AS $$
+DECLARE
+  v_item RECORD;
+  v_stock RECORD;
+  v_insufficient BOOLEAN := FALSE;
+  v_error_msg TEXT := '';
+BEGIN
+  -- Loop through each item in the order to verify stock
+  FOR v_item IN SELECT * FROM jsonb_to_recordset(p_items) AS x(id TEXT, name TEXT, qty INT) LOOP
+    SELECT is_sold_out, stock_remaining, name INTO v_stock FROM food_items WHERE id = v_item.id FOR UPDATE;
+    
+    IF NOT FOUND THEN
+      v_error_msg := 'Item ' || v_item.name || ' not found.';
+      v_insufficient := TRUE;
+      EXIT;
+    END IF;
+    
+    IF v_stock.is_sold_out THEN
+      v_error_msg := 'Sorry, ' || v_stock.name || ' is sold out.';
+      v_insufficient := TRUE;
+      EXIT;
+    END IF;
+    
+    IF v_stock.stock_remaining IS NOT NULL AND v_stock.stock_remaining < v_item.qty THEN
+      v_error_msg := 'Sorry, ' || v_stock.name || ' only has ' || v_stock.stock_remaining || ' remaining plates.';
+      v_insufficient := TRUE;
+      EXIT;
+    END IF;
+  END LOOP;
+  
+  IF v_insufficient THEN
+    RETURN jsonb_build_object('success', FALSE, 'message', v_error_msg);
+  END IF;
+  
+  -- Decrement stock and update is_sold_out automatically if remaining reaches 0
+  FOR v_item IN SELECT * FROM jsonb_to_recordset(p_items) AS x(id TEXT, name TEXT, qty INT) LOOP
+    UPDATE food_items 
+    SET 
+      stock_remaining = CASE 
+        WHEN stock_remaining IS NOT NULL THEN stock_remaining - v_item.qty 
+        ELSE stock_remaining 
+      END,
+      is_sold_out = CASE 
+        WHEN stock_remaining IS NOT NULL AND stock_remaining - v_item.qty <= 0 THEN TRUE 
+        ELSE is_sold_out 
+      END
+    WHERE id = v_item.id;
+  END LOOP;
+  
+  -- Insert the order
+  INSERT INTO orders (
+    "orderId", "shopId", items, "grandTotal", "paymentMethod", "paymentStatus", 
+    "transactionId", "paidAt", status, "foodCollected", "qrToken", 
+    "appliedDiscount", "createdAt", "updatedAt"
+  ) VALUES (
+    p_order_id, p_shop_id, p_items, p_grand_total, p_payment_method, p_payment_status, 
+    p_transaction_id, p_paid_at, 'Pending', FALSE, p_qr_token, 
+    p_applied_discount, p_created_at, p_created_at
+  );
+  
+  RETURN jsonb_build_object('success', TRUE, 'message', 'Order placed successfully');
+END;
+$$ LANGUAGE plpgsql;

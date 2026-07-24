@@ -351,12 +351,63 @@ export default function WebApp() {
     window.addEventListener('hunger_discounts_updated', handleSync);
     window.addEventListener('focus', handleSync);
 
+    // 1. Subscribe to 'shops' table updates
+    const shopsChannel = supabase
+      .channel('public:shops:realtime-sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'shops' },
+        async (payload: any) => {
+          console.log('[Realtime] Shops updated:', payload);
+          const dbShops = await fetchShopsFromSupabase();
+          setShops(dbShops);
+        }
+      )
+      .subscribe();
+
+    // 2. Subscribe to 'food_items' table updates
+    const menuChannel = supabase
+      .channel('public:food_items:realtime-sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'food_items' },
+        async (payload: any) => {
+          console.log('[Realtime] Food items updated:', payload);
+          const dbMenu = await fetchMenuItemsFromSupabase();
+          setMenuItems(dbMenu);
+        }
+      )
+      .subscribe();
+
+    // 3. Subscribe to 'orders' table updates globally
+    const ordersChannel = supabase
+      .channel('public:orders:realtime-sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        async (payload: any) => {
+          console.log('[Realtime] Orders updated:', payload);
+          const { data } = await supabase
+            .from('orders')
+            .select('*')
+            .order('createdAt', { ascending: false });
+          if (data) {
+            setOrdersHistory(data as any[]);
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
       window.removeEventListener('storage', handleSync);
       window.removeEventListener('hunger_shops_updated', handleSync);
       window.removeEventListener('hunger_menu_updated', handleSync);
       window.removeEventListener('hunger_discounts_updated', handleSync);
       window.removeEventListener('focus', handleSync);
+
+      supabase.removeChannel(shopsChannel);
+      supabase.removeChannel(menuChannel);
+      supabase.removeChannel(ordersChannel);
     };
   }, []);
 
@@ -383,6 +434,9 @@ export default function WebApp() {
     availableFrom: string;
     availableUntil: string;
     isSpecial: boolean;
+    isSoldOut: boolean;
+    stockLimit: string;
+    stockRemaining: string;
   }>({
     name: '',
     category: 'Fast Food',
@@ -393,10 +447,17 @@ export default function WebApp() {
     isAvailable: true,
     availableFrom: '08:00',
     availableUntil: '22:00',
-    isSpecial: false
+    isSpecial: false,
+    isSoldOut: false,
+    stockLimit: '',
+    stockRemaining: ''
   });
 
   // Shop Owner Settings State
+  const isItemSoldOut = (item: FoodItem) => {
+    return !!item.isSoldOut || (item.stockRemaining !== null && item.stockRemaining !== undefined && item.stockRemaining <= 0);
+  };
+
   const [editingShopUpi, setEditingShopUpi] = useState('');
   const [editingShopQrUrl, setEditingShopQrUrl] = useState('');
 
@@ -871,6 +932,30 @@ export default function WebApp() {
     setActiveTab('home');
   };
 
+  // CHECKOUT VALIDATION
+  const handleStartCheckout = () => {
+    let soldOutItemName = '';
+    for (const cartItem of cart) {
+      const matched = menuItems.find(m => m.id === cartItem.id);
+      if (matched) {
+        const isOut = matched.isSoldOut || (matched.stockRemaining !== null && matched.stockRemaining !== undefined && matched.stockRemaining <= 0);
+        if (isOut) {
+          soldOutItemName = matched.name;
+          break;
+        }
+        if (matched.stockRemaining !== null && matched.stockRemaining !== undefined && matched.stockRemaining < cartItem.qty) {
+          alert(`Sorry, there is only ${matched.stockRemaining} remaining stock of "${matched.name}". Please adjust the quantity in your cart.`);
+          return;
+        }
+      }
+    }
+    if (soldOutItemName) {
+      alert(`Sorry, "${soldOutItemName}" has just sold out! Please remove it from your cart before checking out.`);
+      return;
+    }
+    setIsCheckoutOpen(true);
+  };
+
   // UNIQUE PER-ORDER PLACEMENT WITH DISCOUNT PRESERVATION & STATUS: 'Pending'
   const handlePlaceOrder = async () => {
     if (cart.length === 0) return;
@@ -887,8 +972,13 @@ export default function WebApp() {
       isOnlineVerified: true // Enforced true because payment-before-navigation succeeded!
     });
 
-    const orderId = apiRes.orderId;
-    const uniqueQrToken = apiRes.qrToken;
+    if (!apiRes.success) {
+      alert(apiRes.message || 'Payment succeeded, but order placement failed due to stock changes. Please contact canteen support for a refund.');
+      return;
+    }
+
+    const orderId = apiRes.orderId!;
+    const uniqueQrToken = apiRes.qrToken!;
     const createdAtTimestamp = apiRes.createdAt || Date.now();
 
     const newOrder: Order = {
@@ -1265,9 +1355,24 @@ export default function WebApp() {
       };
       const finalImage = getCategoryDefaultImage(itemForm.category, itemForm.image);
 
+      const limitVal = itemForm.stockLimit.trim() !== '' ? Number(itemForm.stockLimit) : null;
+      let remainingVal = itemForm.stockRemaining.trim() !== '' ? Number(itemForm.stockRemaining) : null;
+      
+      // Auto set remaining to limit if creating new or if remaining was left empty but limit is set
+      if (remainingVal === null && limitVal !== null) {
+        remainingVal = limitVal;
+      }
+      
+      // Auto mark sold out if remaining stock is 0
+      const autoSoldOut = remainingVal !== null && remainingVal <= 0;
+      const isSoldOut = itemForm.isSoldOut || autoSoldOut;
+
       const itemToSave: FoodItem = editingItem ? {
         ...editingItem,
         ...itemForm,
+        stockLimit: limitVal,
+        stockRemaining: remainingVal,
+        isSoldOut: isSoldOut,
         image: finalImage,
         id: editingItem.id,
         shopId: activeShop.id,
@@ -1275,6 +1380,9 @@ export default function WebApp() {
       } : {
         id: `m-${Date.now()}`,
         ...itemForm,
+        stockLimit: limitVal,
+        stockRemaining: remainingVal,
+        isSoldOut: isSoldOut,
         image: finalImage,
         rating: 4.8,
         prepTime: '10-12 mins',
@@ -1314,6 +1422,33 @@ export default function WebApp() {
     setMenuItems(updatedMenu);
   };
 
+  // QUICK SOLD-OUT TOGGLE FOR SHOPKEEPER
+  const handleToggleSoldOut = async (itemId: string) => {
+    try {
+      const target = menuItems.find(i => i.id === itemId);
+      if (!target) return;
+      
+      const nextSoldOut = !target.isSoldOut;
+      
+      // If toggling to Available and stockRemaining <= 0, replenish stock by setting remaining to stockLimit (or default 10 if none)
+      let nextRemaining = target.stockRemaining;
+      if (!nextSoldOut && (target.stockRemaining !== null && target.stockRemaining !== undefined && target.stockRemaining <= 0)) {
+        nextRemaining = target.stockLimit || 20; // Default replenishment count if none set
+      }
+      
+      const updatedItem = {
+        ...target,
+        isSoldOut: nextSoldOut,
+        stockRemaining: nextRemaining
+      };
+      
+      const updatedMenu = await addOrUpdateFoodItem(updatedItem);
+      setMenuItems(updatedMenu);
+    } catch (err: any) {
+      alert(`Error toggling status: ${err.message || 'Failed'}`);
+    }
+  };
+
   const openAddItemModal = () => {
     setEditingItem(null);
     setItemForm({
@@ -1326,7 +1461,10 @@ export default function WebApp() {
       isAvailable: true,
       availableFrom: '08:00',
       availableUntil: '22:00',
-      isSpecial: false
+      isSpecial: false,
+      isSoldOut: false,
+      stockLimit: '',
+      stockRemaining: ''
     });
     setIsItemModalOpen(true);
   };
@@ -1343,7 +1481,10 @@ export default function WebApp() {
       isAvailable: item.isAvailable,
       availableFrom: item.availableFrom || '08:00',
       availableUntil: item.availableUntil || '22:00',
-      isSpecial: !!item.isSpecial
+      isSpecial: !!item.isSpecial,
+      isSoldOut: !!item.isSoldOut,
+      stockLimit: item.stockLimit !== null && item.stockLimit !== undefined ? String(item.stockLimit) : '',
+      stockRemaining: item.stockRemaining !== null && item.stockRemaining !== undefined ? String(item.stockRemaining) : ''
     });
     setIsItemModalOpen(true);
   };
@@ -1948,6 +2089,7 @@ export default function WebApp() {
                   const availableNow = isItemInTimeSlot(item);
                   const { finalPrice, discountAmount, appliedOffer } = getDiscountedPrice(item, discounts);
                   const hasDiscount = discountAmount > 0;
+                  const isSoldOut = isItemSoldOut(item);
 
                   return (
                     <div key={item.id} className={`rounded-2xl overflow-hidden flex flex-col justify-between group border relative transition ${
@@ -1974,12 +2116,15 @@ export default function WebApp() {
                           <img 
                             src={getCategoryDefaultImage(item.category, item.image)} 
                             alt={item.name}
-                            className={`w-full h-full object-cover group-hover:scale-105 transition duration-500 ${!availableNow ? 'grayscale opacity-60' : ''}`} 
+                            className={`w-full h-full object-cover group-hover:scale-105 transition duration-500 ${(!availableNow || isSoldOut) ? 'grayscale opacity-50' : ''}`} 
                           />
                           
                           <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-md border ${availableNow ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-400' : 'bg-red-950/80 border-red-500/40 text-red-400'}`}>
-                              {availableNow ? `Available (${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'})` : `Slot Closed`}
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-md border ${
+                              isSoldOut ? 'bg-red-950/80 border-red-500/40 text-red-400 font-extrabold' :
+                              availableNow ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-400' : 'bg-red-950/80 border-red-500/40 text-red-400'
+                            }`}>
+                              {isSoldOut ? '🔴 SOLD OUT' : availableNow ? `Available (${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'})` : `Slot Closed`}
                             </span>
                           </div>
                         </div>
@@ -1990,6 +2135,11 @@ export default function WebApp() {
                             <span className={`w-3 h-3 rounded-full border ${item.isVeg ? 'border-emerald-500 bg-emerald-500/20' : 'border-red-500 bg-red-500/20'}`} />
                           </div>
                           <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">{item.description}</p>
+                          {(!isSoldOut && item.stockLimit !== null && item.stockLimit !== undefined) && (
+                            <p className="text-[10px] text-blue-400 font-semibold">
+                              Only {item.stockRemaining ?? 0} plates remaining!
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -2007,16 +2157,16 @@ export default function WebApp() {
                         </div>
 
                         <button 
-                          disabled={!availableNow}
+                          disabled={!availableNow || isSoldOut}
                           onClick={() => addToCart(item)}
                           className={`font-semibold px-4 py-2 rounded-xl text-xs transition flex items-center gap-1.5 ${
-                            availableNow 
+                            (availableNow && !isSoldOut)
                               ? 'bg-blue-600/10 hover:bg-blue-600 text-blue-500 hover:text-white border border-blue-600/30 active:scale-95' 
                               : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
                           }`}
                         >
                           <Plus className="w-4 h-4" />
-                          <span>{availableNow ? t('addToCart', currentLang) : t('slotClosed', currentLang)}</span>
+                          <span>{isSoldOut ? 'Sold Out' : availableNow ? t('addToCart', currentLang) : t('slotClosed', currentLang)}</span>
                         </button>
                       </div>
                     </div>
@@ -2061,6 +2211,7 @@ export default function WebApp() {
                 const availableNow = isItemInTimeSlot(item);
                 const { finalPrice, discountAmount } = getDiscountedPrice(item, discounts);
                 const hasDiscount = discountAmount > 0;
+                const isSoldOut = isItemSoldOut(item);
 
                 return (
                   <div key={item.id} className={`rounded-2xl p-4 flex flex-col justify-between space-y-3 border relative ${
@@ -2075,7 +2226,7 @@ export default function WebApp() {
                     )}
 
                     <div className="flex gap-4">
-                      <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className={`w-24 h-24 rounded-xl object-cover ${!availableNow ? 'grayscale opacity-60' : ''}`} />
+                      <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className={`w-24 h-24 rounded-xl object-cover ${(!availableNow || isSoldOut) ? 'grayscale opacity-50' : ''}`} />
                       <div className="flex-1 space-y-1">
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-bold uppercase text-emerald-500 tracking-wider">{item.shopName}</span>
@@ -2083,6 +2234,11 @@ export default function WebApp() {
                         </div>
                         <h3 className="font-bold text-sm">{item.name}</h3>
                         <p className="text-[11px] text-slate-400 line-clamp-2">{item.description}</p>
+                        {(!isSoldOut && item.stockLimit !== null && item.stockLimit !== undefined) && (
+                          <p className="text-[10px] text-blue-400 font-semibold">
+                            Only {item.stockRemaining ?? 0} remaining!
+                          </p>
+                        )}
                         
                         <div className="flex items-center gap-2 pt-1">
                           {hasDiscount && (
@@ -2097,14 +2253,22 @@ export default function WebApp() {
                       theme === 'dark' ? 'border-slate-800/60 text-slate-400' : 'border-slate-200 text-slate-600'
                     }`}>
                       <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${
+                        isSoldOut ? 'bg-red-950/80 text-red-400 border-red-500/30 font-extrabold' :
                         availableNow 
                           ? (theme === 'dark' ? 'bg-emerald-950/80 text-emerald-400 border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border-emerald-200') 
                           : (theme === 'dark' ? 'bg-red-950/80 text-red-400 border-red-500/30' : 'bg-red-50 text-red-700 border-red-200')
                       }`}>
-                        {availableNow ? `Slot: ${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'}` : t('slotClosed', currentLang)}
+                        {isSoldOut ? 'Sold Out' : availableNow ? `Slot: ${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'}` : t('slotClosed', currentLang)}
                       </span>
 
-                      {inCart ? (
+                      {isSoldOut ? (
+                        <button 
+                          disabled={true}
+                          className="px-3 py-1.5 rounded-xl font-semibold bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed"
+                        >
+                          Sold Out
+                        </button>
+                      ) : inCart ? (
                         <div className="flex items-center gap-3 bg-blue-700 text-white px-3 py-1 rounded-xl font-bold shadow-md shadow-blue-700/20">
                           <button onClick={() => updateQty(item.id, -1)}><Minus className="w-3.5 h-3.5" /></button>
                           <span>{inCart.qty}</span>
@@ -2577,21 +2741,47 @@ export default function WebApp() {
                             </div>
                             <p className="text-xs font-extrabold text-blue-500">₹{item.price}</p>
                             <p className="text-[10px] text-slate-400">Slot: {item.availableFrom || '08:00'} - {item.availableUntil || '22:00'}</p>
+                            {item.stockLimit !== null && item.stockLimit !== undefined ? (
+                              <p className="text-[10px] text-slate-300 font-medium">
+                                Stock: <span className="font-extrabold text-blue-400">{item.stockRemaining ?? 0}</span> / {item.stockLimit}
+                              </p>
+                            ) : (
+                              <p className="text-[10px] text-slate-500 italic">No Stock Limit</p>
+                            )}
+                            {item.isSoldOut && (
+                              <span className="inline-block bg-red-950/70 text-red-400 border border-red-800/40 text-[8px] font-extrabold px-1.5 py-0.5 rounded mt-0.5">
+                                🚫 SOLD OUT OVERRIDE
+                              </span>
+                            )}
                           </div>
                         </div>
 
                         <div className="flex sm:flex-col justify-between items-center sm:items-end gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/40 w-full sm:w-auto">
-                          <button 
-                            onClick={() => handleToggleSpecial(item.id)}
-                            className={`p-1.5 rounded-lg border text-[10px] font-bold transition flex items-center gap-1 ${
-                              item.isSpecial 
-                                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md' 
-                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                            }`}
-                          >
-                            <Star className={`w-3 h-3 ${item.isSpecial ? 'fill-slate-950' : ''}`} />
-                            <span>{item.isSpecial ? 'Special' : 'Mark Special'}</span>
-                          </button>
+                          <div className="flex sm:flex-col gap-1.5 w-full sm:w-auto">
+                            <button 
+                              onClick={() => handleToggleSpecial(item.id)}
+                              className={`p-1.5 rounded-lg border text-[10px] font-bold transition flex items-center gap-1 w-full sm:w-auto justify-center ${
+                                item.isSpecial 
+                                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md' 
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                              }`}
+                            >
+                              <Star className={`w-3 h-3 ${item.isSpecial ? 'fill-slate-950' : ''}`} />
+                              <span>{item.isSpecial ? 'Special' : 'Mark Special'}</span>
+                            </button>
+
+                            <button 
+                              onClick={() => handleToggleSoldOut(item.id)}
+                              className={`p-1.5 rounded-lg border text-[10px] font-bold transition flex items-center gap-1 w-full sm:w-auto justify-center ${
+                                item.isSoldOut 
+                                  ? 'bg-red-600 text-white border-red-500 shadow-md shadow-red-500/20' 
+                                  : 'bg-emerald-950/60 hover:bg-emerald-900 text-emerald-400 border-emerald-800'
+                              }`}
+                            >
+                              <Ban className="w-3 h-3" />
+                              <span>{item.isSoldOut ? 'Sold Out' : 'Available'}</span>
+                            </button>
+                          </div>
 
                           <div className="flex items-center gap-1.5">
                             <button 
@@ -3295,6 +3485,35 @@ export default function WebApp() {
                 />
               </div>
 
+              {/* Daily Stock Limit & Current Remaining Stock */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold">Daily Stock Limit</label>
+                  <input 
+                    type="number" 
+                    placeholder="Unlimited"
+                    value={itemForm.stockLimit}
+                    onChange={(e) => setItemForm({ ...itemForm, stockLimit: e.target.value })}
+                    className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none ${
+                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold">Remaining Stock</label>
+                  <input 
+                    type="number" 
+                    placeholder="Unlimited"
+                    value={itemForm.stockRemaining}
+                    onChange={(e) => setItemForm({ ...itemForm, stockRemaining: e.target.value })}
+                    className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none ${
+                      theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                    }`}
+                  />
+                </div>
+              </div>
+
               <div className={`p-3 rounded-2xl border space-y-3 ${
                 theme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'
               }`}>
@@ -3307,6 +3526,20 @@ export default function WebApp() {
                   <span className="font-bold text-amber-500 flex items-center gap-1">
                     <Star className="w-3.5 h-3.5 fill-amber-500" />
                     <span>Mark as "Today's Special 🌟"</span>
+                  </span>
+                </label>
+
+                <hr className={theme === 'dark' ? 'border-slate-850' : 'border-slate-200'} />
+
+                <label className="flex items-center gap-2 text-xs cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    checked={itemForm.isSoldOut}
+                    onChange={(e) => setItemForm({ ...itemForm, isSoldOut: e.target.checked })}
+                  />
+                  <span className="font-bold text-red-500 flex items-center gap-1">
+                    <Ban className="w-3.5 h-3.5 text-red-500" />
+                    <span>Force "Sold Out" status override</span>
                   </span>
                 </label>
               </div>
@@ -3368,7 +3601,7 @@ export default function WebApp() {
                   <span className="text-emerald-500 font-extrabold">₹{cartSubtotal + 15}</span>
                 </div>
                 <button 
-                  onClick={() => setIsCheckoutOpen(true)}
+                  onClick={handleStartCheckout}
                   className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-bold py-3 rounded-xl text-sm"
                 >
                   Pay via {currentCheckoutShop.name}'s UPI &rarr;

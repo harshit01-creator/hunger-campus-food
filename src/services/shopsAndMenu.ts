@@ -28,6 +28,11 @@ export interface FoodItem {
   availableFrom?: string; // e.g. "08:00"
   availableUntil?: string; // e.g. "11:00"
   isSpecial?: boolean; // Today's Special flag
+  
+  // Stock Availability Controls
+  isSoldOut: boolean;
+  stockLimit?: number | null;
+  stockRemaining?: number | null;
 }
 
 export const CATEGORY_DEFAULT_IMAGES: Record<string, string> = {
@@ -98,7 +103,10 @@ export const INITIAL_MENU: FoodItem[] = [
     isAvailable: true,
     availableFrom: '07:30',
     availableUntil: '22:00',
-    isSpecial: true
+    isSpecial: true,
+    isSoldOut: false,
+    stockLimit: null,
+    stockRemaining: null
   },
   {
     id: 'm2',
@@ -115,7 +123,10 @@ export const INITIAL_MENU: FoodItem[] = [
     isAvailable: true,
     availableFrom: '11:00',
     availableUntil: '21:30',
-    isSpecial: true
+    isSpecial: true,
+    isSoldOut: false,
+    stockLimit: null,
+    stockRemaining: null
   },
   {
     id: 'm3',
@@ -131,7 +142,10 @@ export const INITIAL_MENU: FoodItem[] = [
     description: 'Freshly pulled espresso shot poured over chilled milk and rich caramel drizzle.',
     isAvailable: true,
     availableFrom: '08:00',
-    availableUntil: '21:00'
+    availableUntil: '21:00',
+    isSoldOut: false,
+    stockLimit: null,
+    stockRemaining: null
   },
   {
     id: 'm4',
@@ -147,7 +161,10 @@ export const INITIAL_MENU: FoodItem[] = [
     description: 'Creamy cottage cheese gravy served with 2 Butter Naans and fragrant Jeera Rice.',
     isAvailable: true,
     availableFrom: '12:00',
-    availableUntil: '15:30'
+    availableUntil: '15:30',
+    isSoldOut: false,
+    stockLimit: null,
+    stockRemaining: null
   },
   {
     id: 'm5',
@@ -163,7 +180,10 @@ export const INITIAL_MENU: FoodItem[] = [
     description: 'Wok-tossed basmati rice with crunchy garden veggies in fiery homemade Schezwan sauce.',
     isAvailable: true,
     availableFrom: '11:30',
-    availableUntil: '22:30'
+    availableUntil: '22:30',
+    isSoldOut: false,
+    stockLimit: null,
+    stockRemaining: null
   },
   {
     id: 'm6',
@@ -179,7 +199,10 @@ export const INITIAL_MENU: FoodItem[] = [
     description: 'Thick blended coffee topped with a generous scoop of creamy dark chocolate ice cream.',
     isAvailable: true,
     availableFrom: '09:00',
-    availableUntil: '21:00'
+    availableUntil: '21:00',
+    isSoldOut: false,
+    stockLimit: null,
+    stockRemaining: null
   }
 ];
 
@@ -313,7 +336,27 @@ export async function fetchMenuItemsFromSupabase(): Promise<FoodItem[]> {
         const { data: usersData } = await supabase.from('user_accounts').select('id').limit(1);
         if (!usersData || usersData.length === 0) {
           console.log('[Supabase] Database empty. Seeding INITIAL_MENU...');
-          await supabase.from('food_items').insert(INITIAL_MENU);
+          const seededMenu = INITIAL_MENU.map(item => ({
+            id: item.id,
+            name: item.name,
+            category: item.category,
+            price: item.price,
+            rating: item.rating,
+            prepTime: item.prepTime,
+            image: item.image,
+            isVeg: item.isVeg,
+            shopId: item.shopId,
+            shopName: item.shopName,
+            description: item.description,
+            isAvailable: item.isAvailable,
+            availableFrom: item.availableFrom,
+            availableUntil: item.availableUntil,
+            isSpecial: item.isSpecial,
+            is_sold_out: item.isSoldOut,
+            stock_limit: item.stockLimit,
+            stock_remaining: item.stockRemaining
+          }));
+          await supabase.from('food_items').insert(seededMenu);
           saveMenuItems(INITIAL_MENU);
           return INITIAL_MENU;
         } else {
@@ -322,7 +365,26 @@ export async function fetchMenuItemsFromSupabase(): Promise<FoodItem[]> {
           return [];
         }
       }
-      const dbMenu = data as FoodItem[];
+      const dbMenu = data.map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        price: item.price,
+        rating: item.rating,
+        prepTime: item.prepTime,
+        image: item.image,
+        isVeg: item.isVeg,
+        shopId: item.shopId,
+        shopName: item.shopName,
+        description: item.description,
+        isAvailable: item.isAvailable,
+        availableFrom: item.availableFrom,
+        availableUntil: item.availableUntil,
+        isSpecial: item.isSpecial,
+        isSoldOut: item.is_sold_out || false,
+        stockLimit: item.stock_limit,
+        stockRemaining: item.stock_remaining
+      })) as FoodItem[];
       saveMenuItems(dbMenu);
       return dbMenu;
     }
@@ -337,7 +399,27 @@ export async function fetchMenuItemsFromSupabase(): Promise<FoodItem[]> {
 
 export async function addOrUpdateFoodItem(item: FoodItem): Promise<FoodItem[]> {
   try {
-    const { error } = await supabase.from('food_items').upsert([item], { onConflict: 'id' });
+    const dbPayload = {
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      price: item.price,
+      rating: item.rating,
+      prepTime: item.prepTime,
+      image: item.image,
+      isVeg: item.isVeg,
+      shopId: item.shopId,
+      shopName: item.shopName,
+      description: item.description,
+      isAvailable: item.isAvailable,
+      availableFrom: item.availableFrom,
+      availableUntil: item.availableUntil,
+      isSpecial: item.isSpecial,
+      is_sold_out: item.isSoldOut,
+      stock_limit: item.stockLimit,
+      stock_remaining: item.stockRemaining
+    };
+    const { error } = await supabase.from('food_items').upsert([dbPayload], { onConflict: 'id' });
     if (error) console.warn('[Supabase Insert Item Error]:', error);
   } catch (err) {
     console.warn('[Supabase Insert Item Exception]:', err);

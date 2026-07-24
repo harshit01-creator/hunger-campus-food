@@ -2,6 +2,7 @@
 // Implements Payment Status verification, Order Cancellation & QR-based auto handover confirmation.
 
 import { createClient } from '@supabase/supabase-js';
+import { loadMenuItems, saveMenuItems } from './shopsAndMenu';
 
 const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://YOUR_PROJECT_ID.supabase.co';
 const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'YOUR_ANON_KEY';
@@ -88,16 +89,110 @@ interface CreateOrderInput {
   appliedDiscount?: any;
 }
 
-export async function createOrder(input: CreateOrderInput): Promise<{orderId: string; qrToken: string; paymentStatus: PaymentStatus; transactionId?: string; createdAt: number}> {
+export async function createOrder(input: CreateOrderInput): Promise<{
+  success: boolean;
+  message: string;
+  orderId?: string;
+  qrToken?: string;
+  paymentStatus?: PaymentStatus;
+  transactionId?: string;
+  createdAt?: number;
+}> {
   const orderId = `HUNGER-${Math.floor(1000 + Math.random() * 9000)}`;
   const qrToken = `HUNGER-QR-${orderId}-${Date.now()}`;
   const now = Date.now();
   
   const paymentStatus: PaymentStatus = input.isOnlineVerified ? 'Paid' : 'Pending';
   const transactionId = input.transactionId || `UPI-TXN-${Math.floor(1000000000 + Math.random() * 9000000000)}`;
-  const paidAt = paymentStatus === 'Paid' ? now : undefined;
+  const paidAt = paymentStatus === 'Paid' ? now : null;
 
-  await supabase.from(ORDERS).insert([{
+  try {
+    const itemsPayload = input.items.map(item => ({
+      id: item.id,
+      name: item.name,
+      qty: item.qty
+    }));
+
+    // Call stored procedure on Supabase to decrement stock atomically
+    const { data, error } = await supabase.rpc('place_order_atomic', {
+      p_order_id: orderId,
+      p_shop_id: input.shopId,
+      p_items: itemsPayload,
+      p_grand_total: input.grandTotal,
+      p_payment_method: input.paymentMethod,
+      p_payment_status: paymentStatus,
+      p_transaction_id: transactionId,
+      p_paid_at: paidAt,
+      p_qr_token: qrToken,
+      p_applied_discount: input.appliedDiscount || null,
+      p_created_at: now
+    });
+
+    if (!error && data) {
+      if (data.success) {
+        return { success: true, message: 'Order placed successfully', orderId, qrToken, paymentStatus, transactionId, createdAt: now };
+      } else {
+        return { success: false, message: data.message || 'Stock verification failed.' };
+      }
+    }
+    if (error) {
+      console.warn('[Supabase RPC Error]:', error.message);
+    }
+  } catch (err: any) {
+    console.warn('[Supabase RPC Exception]:', err.message);
+  }
+
+  // LOCAL STORAGE FALLBACK ATOMIC STOCK SIMULATION
+  const currentMenu = loadMenuItems();
+  let insufficient = false;
+  let errorMsg = '';
+
+  for (const item of input.items) {
+    const matched = currentMenu.find(m => m.id === item.id);
+    if (!matched) {
+      errorMsg = `Item ${item.name} not found.`;
+      insufficient = true;
+      break;
+    }
+    if (matched.isSoldOut) {
+      errorMsg = `Sorry, ${matched.name} is sold out.`;
+      insufficient = true;
+      break;
+    }
+    if (matched.stockRemaining !== undefined && matched.stockRemaining !== null && matched.stockRemaining < item.qty) {
+      errorMsg = `Sorry, ${matched.name} only has ${matched.stockRemaining} remaining plates.`;
+      insufficient = true;
+      break;
+    }
+  }
+
+  if (insufficient) {
+    return { success: false, message: errorMsg };
+  }
+
+  // Decrement local storage stock counts and update isSoldOut automatically
+  const updatedMenu = currentMenu.map(m => {
+    const orderItem = input.items.find(oi => oi.id === m.id);
+    if (orderItem) {
+      const nextRemaining = m.stockRemaining !== undefined && m.stockRemaining !== null 
+        ? Math.max(0, m.stockRemaining - orderItem.qty) 
+        : m.stockRemaining;
+      
+      const autoSoldOut = nextRemaining !== undefined && nextRemaining !== null && nextRemaining <= 0;
+
+      return {
+        ...m,
+        stockRemaining: nextRemaining,
+        isSoldOut: m.isSoldOut || autoSoldOut
+      };
+    }
+    return m;
+  });
+  saveMenuItems(updatedMenu);
+
+  // Store order locally in local storage history fallback
+  const localOrders = JSON.parse(localStorage.getItem('hunger_local_orders') || '[]');
+  const newOrder = {
     orderId,
     shopId: input.shopId,
     items: input.items,
@@ -106,15 +201,32 @@ export async function createOrder(input: CreateOrderInput): Promise<{orderId: st
     paymentStatus,
     transactionId,
     paidAt,
-    status: 'Pending' as OrderStatus,
+    status: 'Pending',
     foodCollected: false,
     qrToken,
     appliedDiscount: input.appliedDiscount || null,
     createdAt: now,
-    updatedAt: now,
-  }]);
+    updatedAt: now
+  };
+  localStorage.setItem('hunger_local_orders', JSON.stringify([newOrder, ...localOrders]));
 
-  return { orderId, qrToken, paymentStatus, transactionId, createdAt: now };
+  // Attempt direct insertion to cloud table for tracking without locking
+  try {
+    await supabase.from(ORDERS).insert([newOrder]);
+    for (const item of input.items) {
+      const matched = updatedMenu.find(m => m.id === item.id);
+      if (matched) {
+        await supabase.from('food_items').update({
+          stock_remaining: matched.stockRemaining,
+          is_sold_out: matched.isSoldOut
+        }).eq('id', item.id);
+      }
+    }
+  } catch (err) {
+    console.log('[Supabase client insert failed in local mode fallback]');
+  }
+
+  return { success: true, message: 'Order placed successfully', orderId, qrToken, paymentStatus, transactionId, createdAt: now };
 }
 
 /** Shopkeeper action: Accept Order (Locks order, moves status from Pending -> Accepted) */
