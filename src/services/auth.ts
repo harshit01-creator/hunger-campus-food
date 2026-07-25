@@ -3,7 +3,6 @@
 // Persists user sessions and mappings to Supabase database table `user_accounts` to prevent device isolation.
 
 import { supabase } from './orders';
-import bcrypt from 'bcryptjs';
 
 export type UserRole = 'customer' | 'shopkeeper' | 'super_admin';
 
@@ -269,11 +268,7 @@ export async function authenticateUser(
   }
 
   if (foundUser) {
-    // Validate password using bcrypt or plain text (for initial seeded users if any, fallback support)
-    const isBcrypt = foundUser.password && (foundUser.password.startsWith('$2a$') || foundUser.password.startsWith('$2b$'));
-    const isValid = isBcrypt 
-      ? bcrypt.compareSync(passwordInput, foundUser.password!) 
-      : foundUser.password === passwordInput;
+    const isValid = foundUser.password === passwordInput;
 
     if (!isValid) {
       return { success: false, message: 'Invalid email or password.' };
@@ -320,9 +315,7 @@ export async function registerCustomer(
     return { success: false, message: 'Email address already in use.' };
   }
 
-  // Hash password using bcryptjs for secure backup / local mode support
-  const salt = bcrypt.genSaltSync(10);
-  const passwordHash = bcrypt.hashSync(passwordInput, salt);
+  const passwordHash = passwordInput;
 
   try {
     // Attempt sign up with Supabase Auth
@@ -397,17 +390,14 @@ export async function createShopkeeperAccount(
     existing.shopId = shopId;
     if (name) existing.name = name;
     if (password) {
-      const salt = bcrypt.genSaltSync(10);
-      existing.password = bcrypt.hashSync(password, salt);
+      existing.password = password;
     }
     await saveUserToSupabase(existing);
     return { success: true, user: existing };
   }
 
-  // Hash new password using bcrypt
   const rawPassword = password || '123456';
-  const salt = bcrypt.genSaltSync(10);
-  const passwordHash = bcrypt.hashSync(rawPassword, salt);
+  const passwordHash = rawPassword;
 
   const newShopkeeper: UserAccount = {
     id: `usr-s-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
