@@ -226,6 +226,67 @@ function generateReceiptImage(order: Order): string {
   ctx.fillText('Thank you for ordering with Hunger!', canvas.width / 2, currentY);
   
   return canvas.toDataURL('image/png');
+}export function mapDbOrderToFrontend(dbOrder: any, shopsList: ShopAccount[], menuItemsList: FoodItem[]): Order {
+  const shop = shopsList.find(s => s.id === dbOrder.shopId);
+  const createdAtTimestamp = Number(dbOrder.createdAt);
+  
+  // Reconstruct date strings
+  const dateObj = new Date(createdAtTimestamp);
+  const createdAtStr = isNaN(dateObj.getTime()) 
+    ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const paidAtStr = dbOrder.paidAt && !isNaN(new Date(Number(dbOrder.paidAt)).getTime())
+    ? new Date(Number(dbOrder.paidAt)).toLocaleTimeString() 
+    : undefined;
+  const handedOverAtStr = dbOrder.handedOverAt && !isNaN(new Date(Number(dbOrder.handedOverAt)).getTime())
+    ? new Date(Number(dbOrder.handedOverAt)).toLocaleTimeString() 
+    : undefined;
+  const cancelledAtStr = dbOrder.cancelledAt && !isNaN(new Date(Number(dbOrder.cancelledAt)).getTime())
+    ? new Date(Number(dbOrder.cancelledAt)).toLocaleTimeString() 
+    : undefined;
+
+  // Reconstruct items with category and prices from current menuItemsList or db record fallback
+  const items = (dbOrder.items || []).map((item: any) => {
+    const matchedMenu = menuItemsList.find(m => m.id === item.id);
+    const price = matchedMenu ? matchedMenu.price : (item.price || item.discountedPrice || 0);
+    return {
+      id: item.id,
+      name: item.name,
+      qty: item.qty,
+      originalPrice: price,
+      discountedPrice: price,
+      category: matchedMenu ? matchedMenu.category : 'Fast Food',
+      image: matchedMenu ? matchedMenu.image : '',
+      isVeg: matchedMenu ? matchedMenu.isVeg : true,
+      shopId: dbOrder.shopId,
+      shopName: shop ? shop.name : 'Canteen'
+    };
+  });
+
+  return {
+    id: dbOrder.orderId,
+    shopId: dbOrder.shopId,
+    shopName: shop ? shop.name : 'Campus Canteen',
+    customerId: dbOrder.customerId || 'guest-1',
+    customerName: dbOrder.customerName || 'Student Customer',
+    items,
+    grandTotal: Number(dbOrder.grandTotal),
+    paymentMethod: dbOrder.paymentMethod || 'Online UPI',
+    paymentStatus: dbOrder.paymentStatus || 'Paid',
+    transactionId: dbOrder.transactionId,
+    paidAt: paidAtStr,
+    status: dbOrder.status || 'Pending',
+    createdAt: createdAtStr,
+    createdAtTimestamp,
+    estimatedMinutes: 12,
+    qrToken: dbOrder.qrToken,
+    handedOverAt: handedOverAtStr,
+    payeeUpiId: shop ? shop.upiId : '',
+    payeeQrUrl: shop ? shop.qrImageUrl : '',
+    cancelledBy: dbOrder.cancelledBy,
+    cancelledAt: cancelledAtStr,
+    cancellationReason: dbOrder.cancellationReason
+  };
 }
 
 export default function WebApp() {
@@ -332,9 +393,29 @@ export default function WebApp() {
 
   // Real-Time Event Listener & Cloud Database Hydration
   useEffect(() => {
-    fetchShopsFromSupabase().then(dbShops => setShops(dbShops));
-    fetchMenuItemsFromSupabase().then(dbMenu => setMenuItems(dbMenu));
-    fetchDiscountsFromSupabase().then(dbDisc => setDiscounts(dbDisc));
+    const initLoad = async () => {
+      try {
+        const dbShops = await fetchShopsFromSupabase();
+        const dbMenu = await fetchMenuItemsFromSupabase();
+        const dbDisc = await fetchDiscountsFromSupabase();
+        setShops(dbShops);
+        setMenuItems(dbMenu);
+        setDiscounts(dbDisc);
+
+        const { data: dbOrders, error } = await supabase
+          .from('orders')
+          .select('*')
+          .order('createdAt', { ascending: false });
+        if (!error && dbOrders) {
+          const mapped = dbOrders.map(o => mapDbOrderToFrontend(o, dbShops, dbMenu));
+          setOrdersHistory(mapped);
+        }
+      } catch (err) {
+        console.warn('[Initial Hydration Error]:', err);
+      }
+    };
+
+    initLoad();
 
     const handleSync = async () => {
       const dbShops = await fetchShopsFromSupabase();
@@ -343,6 +424,19 @@ export default function WebApp() {
       setShops(dbShops);
       setMenuItems(dbMenu);
       setDiscounts(dbDisc);
+
+      try {
+        const { data: dbOrders } = await supabase
+          .from('orders')
+          .select('*')
+          .order('createdAt', { ascending: false });
+        if (dbOrders) {
+          const mapped = dbOrders.map(o => mapDbOrderToFrontend(o, dbShops, dbMenu));
+          setOrdersHistory(mapped);
+        }
+      } catch (err) {
+        console.warn('[Sync Orders Error]:', err);
+      }
       setLastSyncTime(new Date().toLocaleTimeString());
     };
 
@@ -388,12 +482,15 @@ export default function WebApp() {
         { event: '*', schema: 'public', table: 'orders' },
         async (payload: any) => {
           console.log('[Realtime] Orders updated:', payload);
-          const { data } = await supabase
+          const { data: dbOrders } = await supabase
             .from('orders')
             .select('*')
             .order('createdAt', { ascending: false });
-          if (data) {
-            setOrdersHistory(data as any[]);
+          if (dbOrders) {
+            const currentShops = loadShops();
+            const currentMenu = loadMenuItems();
+            const mapped = dbOrders.map(o => mapDbOrderToFrontend(o, currentShops, currentMenu));
+            setOrdersHistory(mapped);
           }
         }
       )
@@ -1624,10 +1721,14 @@ export default function WebApp() {
 
   // SMART AI SALES ANALYTICS CALCULATIONS
   const getAiAnalytics = () => {
-    // Filter paid/completed orders for this shop
-    const shopOrders = ordersHistory.filter(o => o.shopId === activeShopForOwner.id && o.paymentStatus === 'Paid');
+    // Filter paid/completed orders for this shop, excluding cancelled ones
+    const shopOrders = ordersHistory.filter(o => 
+      o.shopId === activeShopForOwner.id && 
+      o.paymentStatus === 'Paid' && 
+      o.status !== 'Cancelled'
+    );
 
-    const totalRev = shopOrders.reduce((sum, o) => sum + o.grandTotal, 0);
+    const totalRev = shopOrders.reduce((sum, o) => sum + (Number(o.grandTotal) || 0), 0);
     const avgOrder = shopOrders.length > 0 ? Math.round(totalRev / shopOrders.length) : 0;
 
     const categorySales: Record<string, number> = {};
@@ -1641,28 +1742,32 @@ export default function WebApp() {
     });
 
     shopOrders.forEach(o => {
-      // Analyze hour
+      // Analyze hour (local timezone)
       const date = new Date(o.createdAtTimestamp);
-      const hr = date.getHours() || 12;
-      hourlySales[hr] = (hourlySales[hr] || 0) + o.grandTotal;
+      const hr = isNaN(date.getTime()) ? 12 : date.getHours();
+      hourlySales[hr] = (hourlySales[hr] || 0) + (Number(o.grandTotal) || 0);
 
-      const day = date.getDay();
-      daySales[day] = (daySales[day] || 0) + o.grandTotal;
+      const day = isNaN(date.getTime()) ? 0 : date.getDay();
+      daySales[day] = (daySales[day] || 0) + (Number(o.grandTotal) || 0);
 
       o.items.forEach(i => {
         const cat = i.category || 'Fast Food';
-        categorySales[cat] = (categorySales[cat] || 0) + (i.discountedPrice * i.qty);
+        if (categorySales[cat] === undefined) {
+          categorySales[cat] = 0;
+        }
+        categorySales[cat] += ((Number(i.discountedPrice) || 0) * (Number(i.qty) || 0));
 
         if (!itemSales[i.name]) {
           itemSales[i.name] = { name: i.name, qty: 0, revenue: 0, category: cat };
         }
-        itemSales[i.name].qty += i.qty;
-        itemSales[i.name].revenue += i.discountedPrice * i.qty;
+        itemSales[i.name].qty += (Number(i.qty) || 0);
+        itemSales[i.name].revenue += ((Number(i.discountedPrice) || 0) * (Number(i.qty) || 0));
       });
     });
 
     const itemSalesList = Object.values(itemSales);
     const bestSelling = [...itemSalesList].sort((a, b) => b.qty - a.qty).slice(0, 5);
+    
     // Find items in menuItems that are not sold or sold very little for worstSelling
     const shopItems = menuItems.filter(item => item.shopId === activeShopForOwner.id);
     const worstSelling = shopItems.map(item => {
@@ -1680,7 +1785,7 @@ export default function WebApp() {
       ? `${Number(peakHourEntry[0]) % 12 || 12}:00 ${Number(peakHourEntry[0]) >= 12 ? 'PM' : 'AM'}` 
       : '12:00 PM';
 
-    // AI generated insights
+    // AI generated insights calculated from actual aggregated order data
     const insights: string[] = [];
     if (shopOrders.length > 0) {
       if (bestSelling.length > 0) {

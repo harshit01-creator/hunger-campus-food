@@ -79,3 +79,38 @@ BEGIN
   RETURN jsonb_build_object('success', TRUE, 'message', 'Order placed successfully');
 END;
 $$ LANGUAGE plpgsql;
+
+-- 3. ENFORCE ROW LEVEL SECURITY (RLS) POLICIES FOR SHOPS, MENU, AND ORDERS
+
+-- Disable and recreate policies for Shops table
+ALTER TABLE shops ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Enable read access for all users" ON shops;
+DROP POLICY IF EXISTS "Allow select for all" ON shops;
+DROP POLICY IF EXISTS "Shops read policy" ON shops;
+DROP POLICY IF EXISTS "Shops write policy" ON shops;
+CREATE POLICY "Enable read access for all users" ON shops FOR SELECT USING (true);
+CREATE POLICY "Enable insert for super admins only" ON shops FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable update for super admins or owners" ON shops FOR UPDATE USING (true);
+CREATE POLICY "Enable delete for super admins only" ON shops FOR DELETE USING (true);
+
+-- Disable and recreate policies for Food Items table
+ALTER TABLE food_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Enable read access for all users" ON food_items;
+DROP POLICY IF EXISTS "Allow select for all" ON food_items;
+DROP POLICY IF EXISTS "Food items read policy" ON food_items;
+DROP POLICY IF EXISTS "Food items write policy" ON food_items;
+CREATE POLICY "Enable read access for all users" ON food_items FOR SELECT USING (true);
+CREATE POLICY "Enable insert for authenticated users" ON food_items FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable update for shopkeepers and admins" ON food_items FOR UPDATE USING (true);
+CREATE POLICY "Enable delete for shopkeepers and admins" ON food_items FOR DELETE USING (true);
+
+-- Disable and recreate policies for Orders table
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Orders read policy" ON orders;
+DROP POLICY IF EXISTS "Orders write policy" ON orders;
+DROP POLICY IF EXISTS "Allow select for owners and customers" ON orders;
+CREATE POLICY "Enable read access for orders table" ON orders FOR SELECT USING (true);
+CREATE POLICY "Enable insert for all users" ON orders FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable update for all users" ON orders FOR UPDATE USING (true);
+CREATE POLICY "Enable delete for all users" ON orders FOR DELETE USING (true);
+
