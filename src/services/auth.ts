@@ -288,7 +288,7 @@ export async function authenticateUser(
   return { success: false, message: 'Invalid email or password.' };
 }
 
-/** Register new customer using Supabase Auth with bcrypt local fallback */
+/** Register new customer using Supabase Auth with local fallback */
 export async function registerCustomer(
   name: string,
   email: string,
