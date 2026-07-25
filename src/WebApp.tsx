@@ -12,7 +12,8 @@ import { Html5Qrcode } from 'html5-qrcode';
 import kprLogo from './assets/logo.png';
 import { 
   UserAccount, UserRole, SUPER_ADMIN_EMAIL, SUPER_ADMIN_PASSWORD,
-  authenticateUser, registerCustomer, createShopkeeperAccount
+  authenticateUser, registerCustomer, createShopkeeperAccount, signInWithGoogle,
+  fetchUserByEmailFromSupabase, saveUserToSupabase
 } from './services/auth';
 import {
   createOrder as createOrderApi,
@@ -411,8 +412,73 @@ export default function WebApp() {
     };
   }, []);
 
+  // Supabase Auth Session recovery and OAuth listener
+  useEffect(() => {
+    const handleAuthChange = async (event: string, session: any) => {
+      console.log('[Supabase Auth Event]:', event);
+      if (session && session.user) {
+        const email = session.user.email;
+        if (email) {
+          try {
+            let userRec = await fetchUserByEmailFromSupabase(email);
+            if (!userRec) {
+              // Register new Google customer in public database table
+              userRec = {
+                id: session.user.id,
+                email: email.toLowerCase(),
+                name: session.user.user_metadata?.full_name || email.split('@')[0],
+                role: 'customer',
+                isActive: true,
+                createdAt: Date.now()
+              };
+              await saveUserToSupabase(userRec);
+            }
+
+            // Enforce Super Admin role protection for Google oauth logins
+            if (userRec.role === 'super_admin') {
+              alert('Super Admin access is restricted to manual email/password logins only.');
+              await supabase.auth.signOut();
+              setCurrentUser(null);
+              localStorage.removeItem(SESSION_USER_KEY);
+              return;
+            }
+
+            setCurrentUser(userRec);
+            localStorage.setItem(SESSION_USER_KEY, JSON.stringify(userRec));
+
+            // Load appropriate dashboard
+            if (userRec.role === 'customer') {
+              setActiveTab('home');
+            } else if (userRec.role === 'shopkeeper') {
+              setActiveTab('owner');
+            } else if (userRec.role === 'super_admin') {
+              setActiveTab('admin');
+            }
+          } catch (err) {
+            console.error('[OAuth Session Sync Error]:', err);
+          }
+        }
+      }
+    };
+
+    // 1. Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthChange);
+
+    // 2. Perform initial session check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) handleAuthChange('INITIAL_CHECK', session);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
   // Auth Form State
   const [authTab, setAuthTab] = useState<'customer' | 'shopkeeper'>('customer');
+  const [customerMode, setCustomerMode] = useState<'signin' | 'signup'>('signin');
+  const [signUpName, setSignUpName] = useState('');
+  const [signUpConfirmPassword, setSignUpConfirmPassword] = useState('');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
@@ -898,24 +964,57 @@ export default function WebApp() {
 
     setIsAuthLoading(true);
     try {
-      const res = await authenticateUser(targetEmail, targetPassword, authTab);
-      if (res.success && res.user) {
-        const finalUser: UserAccount = {
-          ...res.user,
-          shopId: directShopId || res.user.shopId || 'shop-1'
-        };
-        setCurrentUser(finalUser);
-        localStorage.setItem(SESSION_USER_KEY, JSON.stringify(finalUser));
+      if (authTab === 'customer' && customerMode === 'signup' && !directEmail) {
+        // Customer Sign Up Flow
+        if (!signUpName.trim()) {
+          setAuthError('Please enter your full name.');
+          setIsAuthLoading(false);
+          return;
+        }
+        if (targetPassword !== signUpConfirmPassword) {
+          setAuthError('Passwords do not match.');
+          setIsAuthLoading(false);
+          return;
+        }
+        if (targetPassword.length < 8 || !/\d/.test(targetPassword)) {
+          setAuthError('Password must be at least 8 characters long and contain at least one number.');
+          setIsAuthLoading(false);
+          return;
+        }
 
-        if (finalUser.role === 'super_admin') {
-          setActiveTab('admin');
-        } else if (finalUser.role === 'shopkeeper' || authTab === 'shopkeeper') {
-          setActiveTab('owner');
-        } else {
+        const res = await registerCustomer(signUpName, targetEmail, targetPassword);
+        if (res.success && res.user) {
+          const finalUser: UserAccount = {
+            ...res.user,
+            shopId: 'shop-1'
+          };
+          setCurrentUser(finalUser);
+          localStorage.setItem(SESSION_USER_KEY, JSON.stringify(finalUser));
           setActiveTab('home');
+        } else {
+          setAuthError(res.message || 'Registration failed.');
         }
       } else {
-        setAuthError(res.message || 'Invalid email or password.');
+        // Sign In Flow (Customer or Shopkeeper or Super Admin)
+        const res = await authenticateUser(targetEmail, targetPassword, authTab);
+        if (res.success && res.user) {
+          const finalUser: UserAccount = {
+            ...res.user,
+            shopId: directShopId || res.user.shopId || 'shop-1'
+          };
+          setCurrentUser(finalUser);
+          localStorage.setItem(SESSION_USER_KEY, JSON.stringify(finalUser));
+
+          if (finalUser.role === 'super_admin') {
+            setActiveTab('admin');
+          } else if (finalUser.role === 'shopkeeper' || authTab === 'shopkeeper') {
+            setActiveTab('owner');
+          } else {
+            setActiveTab('home');
+          }
+        } else {
+          setAuthError(res.message || 'Invalid email or password.');
+        }
       }
     } catch (err: any) {
       console.error('[Auth Submit Exception]:', err);
@@ -925,8 +1024,13 @@ export default function WebApp() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     stopCameraScanner();
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn('[Supabase SignOut Exception]:', err);
+    }
     setCurrentUser(null);
     localStorage.removeItem(SESSION_USER_KEY);
     setActiveTab('home');
@@ -1705,7 +1809,58 @@ export default function WebApp() {
             </div>
           )}
 
+          {authTab === 'customer' && (
+            <div className="flex justify-center gap-4 text-xs font-semibold mb-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomerMode('signin');
+                  setAuthError(null);
+                }}
+                className={`pb-1 border-b-2 transition ${
+                  customerMode === 'signin' ? 'border-blue-600 text-blue-500 font-bold' : 'border-transparent text-slate-400'
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomerMode('signup');
+                  setAuthError(null);
+                }}
+                className={`pb-1 border-b-2 transition ${
+                  customerMode === 'signup' ? 'border-blue-600 text-blue-500 font-bold' : 'border-transparent text-slate-400'
+                }`}
+              >
+                Sign Up
+              </button>
+            </div>
+          )}
+
+          {authTab === 'shopkeeper' && (
+            <div className="text-center p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/20 text-emerald-400 text-xs font-semibold mb-2">
+              🔑 Shopkeeper accounts are provided by the platform admin.
+            </div>
+          )}
+
           <form onSubmit={handleAuthSubmit} className="space-y-4">
+            {authTab === 'customer' && customerMode === 'signup' && (
+              <div className="space-y-1">
+                <label className="text-xs font-semibold">Full Name</label>
+                <input 
+                  type="text" 
+                  required
+                  value={signUpName}
+                  onChange={(e) => setSignUpName(e.target.value)}
+                  placeholder="Enter your full name..."
+                  className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500 ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+            )}
+
             <div className="space-y-1">
               <label className="text-xs font-semibold">{t('emailLabel', currentLang)}</label>
               <input 
@@ -1713,7 +1868,7 @@ export default function WebApp() {
                 required
                 value={authEmail}
                 onChange={(e) => setAuthEmail(e.target.value)}
-                placeholder="Enter email address..."
+                placeholder="Enter email address (@gmail.com)..."
                 className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500 ${
                   theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
                 }`}
@@ -1734,6 +1889,22 @@ export default function WebApp() {
               />
             </div>
 
+            {authTab === 'customer' && customerMode === 'signup' && (
+              <div className="space-y-1">
+                <label className="text-xs font-semibold">Confirm Password</label>
+                <input 
+                  type="password" 
+                  required
+                  value={signUpConfirmPassword}
+                  onChange={(e) => setSignUpConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className={`w-full border rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-blue-500 ${
+                    theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                />
+              </div>
+            )}
+
             <button 
               type="submit"
               disabled={isAuthLoading}
@@ -1753,11 +1924,80 @@ export default function WebApp() {
                 </>
               ) : (
                 <>
-                  {t('loginButton', currentLang)} &rarr;
+                  {authTab === 'customer' 
+                    ? (customerMode === 'signin' ? 'Sign In' : 'Sign Up') 
+                    : t('loginButton', currentLang)} &rarr;
                 </>
               )}
             </button>
           </form>
+
+          {authTab === 'customer' && (
+            <div className="space-y-4 pt-2">
+              <div className="relative flex py-2 items-center">
+                <div className="flex-grow border-t border-slate-300 dark:border-slate-800"></div>
+                <span className="flex-shrink mx-4 text-slate-400 dark:text-slate-500 text-xs font-semibold">or</span>
+                <div className="flex-grow border-t border-slate-300 dark:border-slate-800"></div>
+              </div>
+
+              <button
+                type="button"
+                disabled={isAuthLoading}
+                onClick={async () => {
+                  if (isAuthLoading) return;
+                  setIsAuthLoading(true);
+                  setAuthError(null);
+                  try {
+                    const res = await signInWithGoogle();
+                    if (res && (res as any).isMock) {
+                      const mockUser: UserAccount = {
+                        id: `usr-google-${Date.now()}`,
+                        email: (res as any).mockEmail,
+                        name: (res as any).mockName,
+                        role: 'customer',
+                        isActive: true,
+                        createdAt: Date.now()
+                      };
+                      await saveUserToSupabase(mockUser);
+                      setCurrentUser(mockUser);
+                      localStorage.setItem(SESSION_USER_KEY, JSON.stringify(mockUser));
+                      setActiveTab('home');
+                    }
+                  } catch (err: any) {
+                    setAuthError(err.message || 'Google login failed.');
+                  } finally {
+                    setIsAuthLoading(false);
+                  }
+                }}
+                className={`w-full font-bold py-3.5 rounded-2xl text-xs flex items-center justify-center gap-2 border transition ${
+                  theme === 'dark' 
+                    ? 'bg-slate-900 border-slate-800 text-slate-200 hover:bg-slate-800 active:scale-95' 
+                    : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 active:scale-95'
+                }`}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24">
+                  <path
+                    fill="#EA4335"
+                    d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.114-5.136 4.114-3.555 0-6.437-2.882-6.437-6.437 0-3.555 2.882-6.437 6.437-6.437 1.488 0 2.858.508 3.96 1.358l3.078-3.078C19.124 2.128 15.938 1 12.24 1 5.48 1 0 6.48 0 13.24s5.48 12.24 12.24 12.24c6.912 0 12.24-5.328 12.24-12.24 0-.828-.072-1.632-.216-2.41H12.24z"
+                  />
+                </svg>
+                <span>Continue with Google</span>
+              </button>
+
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomerMode(customerMode === 'signin' ? 'signup' : 'signin');
+                    setAuthError(null);
+                  }}
+                  className="text-xs text-blue-500 hover:underline font-semibold"
+                >
+                  {customerMode === 'signin' ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
+                </button>
+              </div>
+            </div>
+          )}
 
         </div>
       </div>

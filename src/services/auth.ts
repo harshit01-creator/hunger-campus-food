@@ -3,6 +3,7 @@
 // Persists user sessions and mappings to Supabase database table `user_accounts` to prevent device isolation.
 
 import { supabase } from './orders';
+import bcrypt from 'bcryptjs';
 
 export type UserRole = 'customer' | 'shopkeeper' | 'super_admin';
 
@@ -218,18 +219,63 @@ export async function authenticateUser(
     return { success: false, message: 'Invalid email or password.' };
   }
 
-  // 2. Fetch specific user from Supabase or local storage
-  let foundUser = await fetchUserByEmailFromSupabase(normalizedEmail);
+  // 2. Try Supabase Auth Sign In first
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: passwordInput
+    });
 
+    if (!error && data.user) {
+      // Fetch user profile details
+      let userRec = await fetchUserByEmailFromSupabase(normalizedEmail);
+      if (!userRec) {
+        // Auto-seed user record as customer if authenticated via Supabase but missing in public table
+        userRec = {
+          id: data.user.id,
+          email: normalizedEmail,
+          name: data.user.user_metadata?.full_name || normalizedEmail.split('@')[0],
+          role: 'customer',
+          isActive: true,
+          createdAt: Date.now()
+        };
+        await saveUserToSupabase(userRec);
+      }
+
+      // STRICT ROLE LOCKING: Reject with generic invalid credentials if login form tab does not match user's registered role
+      if (expectedLoginTab === 'customer' && userRec.role !== 'customer') {
+        await supabase.auth.signOut();
+        return { success: false, message: 'Invalid email or password.' };
+      }
+      if (expectedLoginTab === 'shopkeeper' && userRec.role !== 'shopkeeper') {
+        await supabase.auth.signOut();
+        return { success: false, message: 'Invalid email or password.' };
+      }
+
+      return { success: true, user: userRec };
+    }
+    if (error) {
+      console.warn('[Supabase Auth Sign In Failed, attempting local check]:', error.message);
+    }
+  } catch (err: any) {
+    console.warn('[Supabase Auth Sign In Exception]:', err.message);
+  }
+
+  // 3. Fallback database / Local storage check
+  let foundUser = await fetchUserByEmailFromSupabase(normalizedEmail);
   if (!foundUser) {
-    // If not found, check if database is empty and seed it (rare, first-time only)
     await ensureUsersSeeded();
     foundUser = await fetchUserByEmailFromSupabase(normalizedEmail);
   }
 
   if (foundUser) {
-    // Validate password if present on the account
-    if (foundUser.password && foundUser.password !== passwordInput) {
+    // Validate password using bcrypt or plain text (for initial seeded users if any, fallback support)
+    const isBcrypt = foundUser.password && (foundUser.password.startsWith('$2a$') || foundUser.password.startsWith('$2b$'));
+    const isValid = isBcrypt 
+      ? bcrypt.compareSync(passwordInput, foundUser.password!) 
+      : foundUser.password === passwordInput;
+
+    if (!isValid) {
       return { success: false, message: 'Invalid email or password.' };
     }
 
@@ -237,7 +283,6 @@ export async function authenticateUser(
     if (expectedLoginTab === 'customer' && foundUser.role !== 'customer') {
       return { success: false, message: 'Invalid email or password.' };
     }
-
     if (expectedLoginTab === 'shopkeeper' && foundUser.role !== 'shopkeeper') {
       return { success: false, message: 'Invalid email or password.' };
     }
@@ -245,29 +290,14 @@ export async function authenticateUser(
     return { success: true, user: foundUser };
   }
 
-  // 3. New Registration on first login if not found (Only for customers!)
-  if (expectedLoginTab === 'customer') {
-    const newCustomer: UserAccount = {
-      id: `usr-c-${Date.now()}`,
-      email: normalizedEmail,
-      name: normalizedEmail.split('@')[0],
-      role: 'customer',
-      isActive: true,
-      createdAt: Date.now(),
-      password: passwordInput
-    };
-    await saveUserToSupabase(newCustomer);
-    return { success: true, user: newCustomer };
-  }
-
-  // Block unregistered shopkeeper self-signup
   return { success: false, message: 'Invalid email or password.' };
 }
 
-/** Register new customer */
+/** Register new customer using Supabase Auth with bcrypt local fallback */
 export async function registerCustomer(
   name: string,
-  email: string
+  email: string,
+  passwordInput: string
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
   const normalizedEmail = email.trim().toLowerCase();
   if (normalizedEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
@@ -279,25 +309,66 @@ export async function registerCustomer(
     return { success: false, message: 'Only Gmail addresses are allowed.' };
   }
 
-  let existing = await fetchUserByEmailFromSupabase(normalizedEmail);
-  if (existing) {
-    if (existing.role !== 'customer') {
-      return { success: false, message: 'Email address already in use for a different role.' };
-    }
-    return { success: true, user: existing };
+  // Password strength validation (min 8 characters, at least one number)
+  if (passwordInput.length < 8 || !/\d/.test(passwordInput)) {
+    return { success: false, message: 'Password must be at least 8 characters long and contain at least one number.' };
   }
 
-  const newUser: UserAccount = {
+  // Reject signup if the email already exists under ANY role
+  const existing = await fetchUserByEmailFromSupabase(normalizedEmail);
+  if (existing) {
+    return { success: false, message: 'Email address already in use.' };
+  }
+
+  // Hash password using bcryptjs for secure backup / local mode support
+  const salt = bcrypt.genSaltSync(10);
+  const passwordHash = bcrypt.hashSync(passwordInput, salt);
+
+  try {
+    // Attempt sign up with Supabase Auth
+    const { data, error } = await supabase.auth.signUp({
+      email: normalizedEmail,
+      password: passwordInput,
+      options: {
+        data: {
+          full_name: name
+        }
+      }
+    });
+
+    if (!error && data.user) {
+      const newCustomer: UserAccount = {
+        id: data.user.id,
+        email: normalizedEmail,
+        name: name || normalizedEmail.split('@')[0],
+        role: 'customer',
+        isActive: true,
+        createdAt: Date.now(),
+        password: passwordHash
+      };
+      await saveUserToSupabase(newCustomer);
+      return { success: true, user: newCustomer };
+    }
+    if (error) {
+      console.warn('[Supabase Auth Sign Up Error]:', error.message);
+    }
+  } catch (err: any) {
+    console.warn('[Supabase Auth Sign Up Exception]:', err.message);
+  }
+
+  // Local storage mock fallback
+  const newCustomer: UserAccount = {
     id: `usr-c-${Date.now()}`,
     email: normalizedEmail,
     name: name || normalizedEmail.split('@')[0],
     role: 'customer',
     isActive: true,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    password: passwordHash
   };
 
-  await saveUserToSupabase(newUser);
-  return { success: true, user: newUser };
+  await saveUserToSupabase(newCustomer);
+  return { success: true, user: newCustomer };
 }
 
 /** Super Admin Action: Register or Link Shopkeeper Account */
@@ -325,10 +396,18 @@ export async function createShopkeeperAccount(
     // Existing shopkeeper account -> Link to new shop ID
     existing.shopId = shopId;
     if (name) existing.name = name;
-    if (password) existing.password = password;
+    if (password) {
+      const salt = bcrypt.genSaltSync(10);
+      existing.password = bcrypt.hashSync(password, salt);
+    }
     await saveUserToSupabase(existing);
     return { success: true, user: existing };
   }
+
+  // Hash new password using bcrypt
+  const rawPassword = password || '123456';
+  const salt = bcrypt.genSaltSync(10);
+  const passwordHash = bcrypt.hashSync(rawPassword, salt);
 
   const newShopkeeper: UserAccount = {
     id: `usr-s-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -338,9 +417,23 @@ export async function createShopkeeperAccount(
     shopId,
     isActive: true,
     createdAt: Date.now(),
-    password: password || '123456'
+    password: passwordHash
   };
 
   await saveUserToSupabase(newShopkeeper);
   return { success: true, user: newShopkeeper };
+}
+
+/** Initiate Google OAuth Sign In */
+export async function signInWithGoogle() {
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: window.location.origin
+    }
+  });
+  if (error) {
+    throw error;
+  }
+  return data;
 }
