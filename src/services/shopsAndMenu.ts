@@ -259,12 +259,6 @@ export async function fetchShopsFromSupabase(): Promise<ShopAccount[]> {
   try {
     const { data, error } = await supabase.from('shops').select('*');
     if (!error && data) {
-      if (data.length === 0) {
-        console.log('[Supabase] Database empty. Seeding INITIAL_SHOPS...');
-        await supabase.from('shops').insert(INITIAL_SHOPS);
-        saveShops(INITIAL_SHOPS);
-        return INITIAL_SHOPS;
-      }
       const dbShops = data as ShopAccount[];
       saveShops(dbShops);
       return dbShops;
@@ -328,32 +322,6 @@ export async function fetchMenuItemsFromSupabase(): Promise<FoodItem[]> {
   try {
     const { data, error } = await supabase.from('food_items').select('*');
     if (!error && data) {
-      if (data.length === 0) {
-        console.log('[Supabase] Database empty. Seeding INITIAL_MENU...');
-        const seededMenu = INITIAL_MENU.map(item => ({
-          id: item.id,
-          name: item.name,
-          category: item.category,
-          price: item.price,
-          rating: item.rating,
-          prepTime: item.prepTime,
-          image: item.image,
-          isVeg: item.isVeg,
-          shopId: item.shopId,
-          shopName: item.shopName,
-          description: item.description,
-          isAvailable: item.isAvailable,
-          availableFrom: item.availableFrom,
-          availableUntil: item.availableUntil,
-          isSpecial: item.isSpecial,
-          is_sold_out: item.isSoldOut,
-          stock_limit: item.stockLimit,
-          stock_remaining: item.stockRemaining
-        }));
-        await supabase.from('food_items').insert(seededMenu);
-        saveMenuItems(INITIAL_MENU);
-        return INITIAL_MENU;
-      }
       const dbMenu = data.map((item: any) => ({
         id: item.id,
         name: item.name,

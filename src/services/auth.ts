@@ -134,16 +134,9 @@ export async function fetchUserByEmailFromSupabase(email: string): Promise<UserA
 
 /** Ensures that INITIAL_USERS is seeded in database if empty */
 export async function ensureUsersSeeded(): Promise<void> {
-  try {
-    const { data, error } = await supabase.from('user_accounts').select('id').limit(1);
-
-    if (!error && (!data || data.length === 0)) {
-      console.log('[Supabase] Database empty. Seeding INITIAL_USERS...');
-      await supabase.from('user_accounts').insert(INITIAL_USERS);
-      saveUsersLocal(INITIAL_USERS);
-    }
-  } catch (err: any) {
-    console.warn('[Supabase] ensureUsersSeeded check failed:', err.message);
+  const local = loadUsersLocal();
+  if (local.length === 0) {
+    saveUsersLocal(INITIAL_USERS);
   }
 }
 

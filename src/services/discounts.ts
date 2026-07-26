@@ -77,12 +77,6 @@ export async function fetchDiscountsFromSupabase(): Promise<DiscountOffer[]> {
   try {
     const { data, error } = await supabase.from('discounts').select('*');
     if (!error && data) {
-      if (data.length === 0) {
-        console.log('[Supabase] Database empty. Seeding INITIAL_DISCOUNTS...');
-        await supabase.from('discounts').insert(INITIAL_DISCOUNTS);
-        saveDiscounts(INITIAL_DISCOUNTS);
-        return INITIAL_DISCOUNTS;
-      }
       const dbDiscounts = data as DiscountOffer[];
       saveDiscounts(dbDiscounts);
       return dbDiscounts;
