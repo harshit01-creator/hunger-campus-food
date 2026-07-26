@@ -1448,26 +1448,28 @@ export default function WebApp() {
         alert('⚠️ Please fill in all required fields (Shopkeeper Email, Password & Canteen Shop Name).');
         return;
       }
-
       // Generate unique targetShopId if empty or default 'shop-new' to prevent ID collisions
       const targetShopId = (newShopkeeperShopId.trim() && newShopkeeperShopId.trim() !== 'shop-new')
         ? newShopkeeperShopId.trim()
         : `shop-${Date.now()}`;
 
+      const createdShopName = newShopName.trim();
+      const newShopObj: ShopAccount = {
+        id: targetShopId,
+        name: createdShopName,
+        email: newShopkeeperEmail.trim().toLowerCase(),
+        upiId: `${targetShopId.replace(/[^a-zA-Z0-9]/g, '')}@okaxis`,
+        qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=${targetShopId}@okaxis&pn=${encodeURIComponent(createdShopName)}`,
+        rating: 5.0
+      };
+
+      // 1. Create the shop record first in Supabase
+      const updatedShops = await addOrUpdateShopAccount(newShopObj);
+
+      // 2. Create the shopkeeper account second
       const res = await createShopkeeperAccount(newShopkeeperName, newShopkeeperEmail, targetShopId, newShopkeeperPassword);
       
       if (res.success) {
-        const createdShopName = newShopName.trim();
-        const newShopObj: ShopAccount = {
-          id: targetShopId,
-          name: createdShopName,
-          email: newShopkeeperEmail.trim().toLowerCase(),
-          upiId: `${targetShopId.replace(/[^a-zA-Z0-9]/g, '')}@okaxis`,
-          qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=${targetShopId}@okaxis&pn=${encodeURIComponent(createdShopName)}`,
-          rating: 5.0
-        };
-
-        const updatedShops = await addOrUpdateShopAccount(newShopObj);
         setShops(updatedShops);
 
         alert(`🎉 Success: Canteen Shop "${createdShopName}" and Shopkeeper account (${newShopkeeperEmail}) saved to database!`);
@@ -1478,6 +1480,12 @@ export default function WebApp() {
         setNewShopName('');
         setNewShopkeeperShopId(`shop-${Date.now()}`);
       } else {
+        // Rollback the created shop record if shopkeeper account creation fails
+        try {
+          await deleteShopAccount(targetShopId);
+        } catch (rollbackErr) {
+          console.warn('Failed to rollback shop creation:', rollbackErr);
+        }
         alert(`❌ Error: ${res.message || 'Failed to create shopkeeper account.'}`);
       }
     } catch (err: any) {
