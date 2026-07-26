@@ -1115,7 +1115,7 @@ export default function WebApp() {
       }
     } catch (err: any) {
       console.error('[Auth Submit Exception]:', err);
-      setAuthError('An unexpected database connection error occurred. Please try again.');
+      setAuthError(err.message || 'An unexpected database connection error occurred. Please try again.');
     } finally {
       setIsAuthLoading(false);
     }
