@@ -1898,6 +1898,9 @@ export default function WebApp() {
                 setAuthTab('customer');
                 setAuthEmail('');
                 setAuthPassword('');
+                setSignUpName('');
+                setSignUpConfirmPassword('');
+                setAuthError(null);
               }}
               className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${authTab === 'customer' ? 'bg-blue-700 text-white shadow-lg shadow-blue-700/25' : 'text-slate-400 hover:text-slate-700'}`}
             >
@@ -1908,6 +1911,9 @@ export default function WebApp() {
                 setAuthTab('shopkeeper');
                 setAuthEmail('');
                 setAuthPassword('');
+                setSignUpName('');
+                setSignUpConfirmPassword('');
+                setAuthError(null);
               }}
               className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${authTab === 'shopkeeper' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/25' : 'text-slate-400 hover:text-slate-700'}`}
             >
@@ -1928,6 +1934,10 @@ export default function WebApp() {
                 type="button"
                 onClick={() => {
                   setCustomerMode('signin');
+                  setAuthEmail('');
+                  setAuthPassword('');
+                  setSignUpName('');
+                  setSignUpConfirmPassword('');
                   setAuthError(null);
                 }}
                 className={`pb-1 border-b-2 transition ${
@@ -1940,6 +1950,10 @@ export default function WebApp() {
                 type="button"
                 onClick={() => {
                   setCustomerMode('signup');
+                  setAuthEmail('');
+                  setAuthPassword('');
+                  setSignUpName('');
+                  setSignUpConfirmPassword('');
                   setAuthError(null);
                 }}
                 className={`pb-1 border-b-2 transition ${
@@ -2102,6 +2116,10 @@ export default function WebApp() {
                   type="button"
                   onClick={() => {
                     setCustomerMode(customerMode === 'signin' ? 'signup' : 'signin');
+                    setAuthEmail('');
+                    setAuthPassword('');
+                    setSignUpName('');
+                    setSignUpConfirmPassword('');
                     setAuthError(null);
                   }}
                   className="text-xs text-blue-500 hover:underline font-semibold"
