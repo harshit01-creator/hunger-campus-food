@@ -135,27 +135,24 @@ export async function fetchUserByEmailFromSupabase(email: string): Promise<UserA
 /** Ensures that INITIAL_USERS is seeded in database if empty */
 export async function ensureUsersSeeded(): Promise<void> {
   try {
-    const { count, error } = await supabase
-      .from('user_accounts')
-      .select('*', { count: 'exact', head: true });
+    const { data, error } = await supabase.from('user_accounts').select('id').limit(1);
 
-    if (!error && count === 0) {
+    if (!error && (!data || data.length === 0)) {
       console.log('[Supabase] Database empty. Seeding INITIAL_USERS...');
       await supabase.from('user_accounts').insert(INITIAL_USERS);
       saveUsersLocal(INITIAL_USERS);
     }
-  } catch (err) {
-    console.warn('[Supabase] ensureUsersSeeded check failed:', err);
+  } catch (err: any) {
+    console.warn('[Supabase] ensureUsersSeeded check failed:', err.message);
   }
 }
 
 /** Saves or updates a user in the Supabase user_accounts table */
 export async function saveUserToSupabase(user: UserAccount): Promise<UserAccount[]> {
-  try {
-    const { error } = await supabase.from('user_accounts').upsert([user], { onConflict: 'id' });
-    if (error) console.warn('[Supabase Upsert User Error]:', error);
-  } catch (err) {
-    console.warn('[Supabase Upsert User Exception]:', err);
+  const { error } = await supabase.from('user_accounts').upsert([user], { onConflict: 'id' });
+  if (error) {
+    console.error('[Supabase Upsert User Error]:', error.message);
+    throw new Error(`Database error: ${error.message}`);
   }
   
   const currentUsers = loadUsersLocal();

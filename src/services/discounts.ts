@@ -76,51 +76,55 @@ export function saveDiscounts(discounts: DiscountOffer[]): void {
 export async function fetchDiscountsFromSupabase(): Promise<DiscountOffer[]> {
   try {
     const { data, error } = await supabase.from('discounts').select('*');
-    if (!error && data && data.length > 0) {
+    if (!error && data) {
+      if (data.length === 0) {
+        console.log('[Supabase] Database empty. Seeding INITIAL_DISCOUNTS...');
+        await supabase.from('discounts').insert(INITIAL_DISCOUNTS);
+        saveDiscounts(INITIAL_DISCOUNTS);
+        return INITIAL_DISCOUNTS;
+      }
       const dbDiscounts = data as DiscountOffer[];
       saveDiscounts(dbDiscounts);
       return dbDiscounts;
     }
-  } catch (err) {
-    console.warn('[Supabase] Falling back to local storage for discounts:', err);
+    if (error) {
+      console.warn('[Supabase Query Discounts Error]:', error.message);
+    }
+  } catch (err: any) {
+    console.warn('[Supabase] Falling back to local storage for discounts:', err.message);
   }
   return loadDiscounts();
 }
 
 export async function addOrUpdateDiscount(discount: DiscountOffer): Promise<DiscountOffer[]> {
+  const { error } = await supabase.from('discounts').upsert([discount], { onConflict: 'id' });
+  if (error) {
+    console.error('[Supabase Discount Upsert Error]:', error.message);
+    throw new Error(`Database error: ${error.message}`);
+  }
+
   const current = loadDiscounts();
   const existingIdx = current.findIndex(d => d.id === discount.id);
-  
   let updated: DiscountOffer[];
   if (existingIdx >= 0) {
     updated = current.map(d => d.id === discount.id ? { ...d, ...discount } : d);
   } else {
     updated = [discount, ...current];
   }
-
   saveDiscounts(updated);
-
-  try {
-    const { error } = await supabase.from('discounts').upsert([discount], { onConflict: 'id' });
-    if (error) console.warn('[Supabase Discount Upsert Error]:', error);
-  } catch (err) {
-    console.warn('[Supabase Discount Exception]:', err);
-  }
-
   return updated;
 }
 
 export async function deleteDiscountById(discountId: string): Promise<DiscountOffer[]> {
+  const { error } = await supabase.from('discounts').delete().eq('id', discountId);
+  if (error) {
+    console.error('[Supabase Discount Delete Error]:', error.message);
+    throw new Error(`Database error: ${error.message}`);
+  }
+
   const current = loadDiscounts();
   const updated = current.filter(d => d.id !== discountId);
   saveDiscounts(updated);
-
-  try {
-    await supabase.from('discounts').delete().eq('id', discountId);
-  } catch (err) {
-    console.warn('[Supabase Discount Delete Exception]:', err);
-  }
-
   return updated;
 }
 

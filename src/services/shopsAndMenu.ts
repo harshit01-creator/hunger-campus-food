@@ -260,38 +260,29 @@ export async function fetchShopsFromSupabase(): Promise<ShopAccount[]> {
     const { data, error } = await supabase.from('shops').select('*');
     if (!error && data) {
       if (data.length === 0) {
-        // Only seed shops if user_accounts table is also completely empty (fresh project initialization)
-        const { data: usersData } = await supabase.from('user_accounts').select('id').limit(1);
-        if (!usersData || usersData.length === 0) {
-          console.log('[Supabase] Database empty. Seeding INITIAL_SHOPS...');
-          await supabase.from('shops').insert(INITIAL_SHOPS);
-          saveShops(INITIAL_SHOPS);
-          return INITIAL_SHOPS;
-        } else {
-          // Shops were deleted by admin! Save empty shops local and return empty.
-          saveShops([]);
-          return [];
-        }
+        console.log('[Supabase] Database empty. Seeding INITIAL_SHOPS...');
+        await supabase.from('shops').insert(INITIAL_SHOPS);
+        saveShops(INITIAL_SHOPS);
+        return INITIAL_SHOPS;
       }
       const dbShops = data as ShopAccount[];
       saveShops(dbShops);
       return dbShops;
     }
     if (error) {
-      console.warn('[Supabase Query Shop Error]:', error);
+      console.warn('[Supabase Query Shop Error]:', error.message);
     }
-  } catch (err) {
-    console.warn('[Supabase] Falling back to local storage for shops:', err);
+  } catch (err: any) {
+    console.warn('[Supabase] Falling back to local storage for shops:', err.message);
   }
   return loadShops();
 }
 
 export async function addOrUpdateShopAccount(shop: ShopAccount): Promise<ShopAccount[]> {
-  try {
-    const { error } = await supabase.from('shops').upsert([shop], { onConflict: 'id' });
-    if (error) console.warn('[Supabase Insert Shop Error]:', error);
-  } catch (err) {
-    console.warn('[Supabase Insert Shop Exception]:', err);
+  const { error } = await supabase.from('shops').upsert([shop], { onConflict: 'id' });
+  if (error) {
+    console.error('[Supabase Insert Shop Error]:', error.message);
+    throw new Error(`Database error: ${error.message}`);
   }
 
   const currentShops = loadShops();
@@ -307,11 +298,10 @@ export async function addOrUpdateShopAccount(shop: ShopAccount): Promise<ShopAcc
 }
 
 export async function deleteShopAccount(shopId: string): Promise<{ shops: ShopAccount[]; menuItems: FoodItem[] }> {
-  try {
-    await supabase.from('shops').delete().eq('id', shopId);
-    await supabase.from('food_items').delete().eq('shopId', shopId);
-  } catch (err) {
-    console.warn('[Supabase Delete Shop Exception]:', err);
+  const { error } = await supabase.from('shops').delete().eq('id', shopId);
+  if (error) {
+    console.error('[Supabase Delete Shop Error]:', error.message);
+    throw new Error(`Database error: ${error.message}`);
   }
 
   const currentShops = loadShops();
@@ -332,38 +322,30 @@ export async function fetchMenuItemsFromSupabase(): Promise<FoodItem[]> {
     const { data, error } = await supabase.from('food_items').select('*');
     if (!error && data) {
       if (data.length === 0) {
-        // Only seed food items if user_accounts table is also completely empty
-        const { data: usersData } = await supabase.from('user_accounts').select('id').limit(1);
-        if (!usersData || usersData.length === 0) {
-          console.log('[Supabase] Database empty. Seeding INITIAL_MENU...');
-          const seededMenu = INITIAL_MENU.map(item => ({
-            id: item.id,
-            name: item.name,
-            category: item.category,
-            price: item.price,
-            rating: item.rating,
-            prepTime: item.prepTime,
-            image: item.image,
-            isVeg: item.isVeg,
-            shopId: item.shopId,
-            shopName: item.shopName,
-            description: item.description,
-            isAvailable: item.isAvailable,
-            availableFrom: item.availableFrom,
-            availableUntil: item.availableUntil,
-            isSpecial: item.isSpecial,
-            is_sold_out: item.isSoldOut,
-            stock_limit: item.stockLimit,
-            stock_remaining: item.stockRemaining
-          }));
-          await supabase.from('food_items').insert(seededMenu);
-          saveMenuItems(INITIAL_MENU);
-          return INITIAL_MENU;
-        } else {
-          // Menu items were deleted! Save empty menu local and return empty.
-          saveMenuItems([]);
-          return [];
-        }
+        console.log('[Supabase] Database empty. Seeding INITIAL_MENU...');
+        const seededMenu = INITIAL_MENU.map(item => ({
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          price: item.price,
+          rating: item.rating,
+          prepTime: item.prepTime,
+          image: item.image,
+          isVeg: item.isVeg,
+          shopId: item.shopId,
+          shopName: item.shopName,
+          description: item.description,
+          isAvailable: item.isAvailable,
+          availableFrom: item.availableFrom,
+          availableUntil: item.availableUntil,
+          isSpecial: item.isSpecial,
+          is_sold_out: item.isSoldOut,
+          stock_limit: item.stockLimit,
+          stock_remaining: item.stockRemaining
+        }));
+        await supabase.from('food_items').insert(seededMenu);
+        saveMenuItems(INITIAL_MENU);
+        return INITIAL_MENU;
       }
       const dbMenu = data.map((item: any) => ({
         id: item.id,
@@ -389,40 +371,40 @@ export async function fetchMenuItemsFromSupabase(): Promise<FoodItem[]> {
       return dbMenu;
     }
     if (error) {
-      console.warn('[Supabase Query Menu Error]:', error);
+      console.warn('[Supabase Query Menu Error]:', error.message);
     }
-  } catch (err) {
-    console.warn('[Supabase] Falling back to local storage for menu:', err);
+  } catch (err: any) {
+    console.warn('[Supabase] Falling back to local storage for menu:', err.message);
   }
   return loadMenuItems();
 }
 
 export async function addOrUpdateFoodItem(item: FoodItem): Promise<FoodItem[]> {
-  try {
-    const dbPayload = {
-      id: item.id,
-      name: item.name,
-      category: item.category,
-      price: item.price,
-      rating: item.rating,
-      prepTime: item.prepTime,
-      image: item.image,
-      isVeg: item.isVeg,
-      shopId: item.shopId,
-      shopName: item.shopName,
-      description: item.description,
-      isAvailable: item.isAvailable,
-      availableFrom: item.availableFrom,
-      availableUntil: item.availableUntil,
-      isSpecial: item.isSpecial,
-      is_sold_out: item.isSoldOut,
-      stock_limit: item.stockLimit,
-      stock_remaining: item.stockRemaining
-    };
-    const { error } = await supabase.from('food_items').upsert([dbPayload], { onConflict: 'id' });
-    if (error) console.warn('[Supabase Insert Item Error]:', error);
-  } catch (err) {
-    console.warn('[Supabase Insert Item Exception]:', err);
+  const dbPayload = {
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    price: item.price,
+    rating: item.rating,
+    prepTime: item.prepTime,
+    image: item.image,
+    isVeg: item.isVeg,
+    shopId: item.shopId,
+    shopName: item.shopName,
+    description: item.description,
+    isAvailable: item.isAvailable,
+    availableFrom: item.availableFrom,
+    availableUntil: item.availableUntil,
+    isSpecial: item.isSpecial,
+    is_sold_out: item.isSoldOut,
+    stock_limit: item.stockLimit,
+    stock_remaining: item.stockRemaining
+  };
+  
+  const { error } = await supabase.from('food_items').upsert([dbPayload], { onConflict: 'id' });
+  if (error) {
+    console.error('[Supabase Insert Item Error]:', error.message);
+    throw new Error(`Database error: ${error.message}`);
   }
 
   const currentMenu = loadMenuItems();
@@ -438,10 +420,10 @@ export async function addOrUpdateFoodItem(item: FoodItem): Promise<FoodItem[]> {
 }
 
 export async function deleteFoodItemById(itemId: string): Promise<FoodItem[]> {
-  try {
-    await supabase.from('food_items').delete().eq('id', itemId);
-  } catch (err) {
-    console.warn('[Supabase Delete Item Exception]:', err);
+  const { error } = await supabase.from('food_items').delete().eq('id', itemId);
+  if (error) {
+    console.error('[Supabase Delete Item Error]:', error.message);
+    throw new Error(`Database error: ${error.message}`);
   }
 
   const currentMenu = loadMenuItems();
