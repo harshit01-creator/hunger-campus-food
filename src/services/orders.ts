@@ -4,8 +4,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { loadMenuItems, saveMenuItems } from './shopsAndMenu';
 
-const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://YOUR_PROJECT_ID.supabase.co';
-const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'YOUR_ANON_KEY';
+const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL || 'https://jxpntyrzhaegwsnrxdhv.supabase.co';
+const SUPABASE_ANON_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || 'sb_publishable_bxuGLEnlLDgKHTbb1fCC3Q_RTkT2Gaz';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 

@@ -298,6 +298,13 @@ export async function addOrUpdateShopAccount(shop: ShopAccount): Promise<ShopAcc
 }
 
 export async function deleteShopAccount(shopId: string): Promise<{ shops: ShopAccount[]; menuItems: FoodItem[] }> {
+  // Delete associated menu items first
+  try {
+    await supabase.from('food_items').delete().eq('shopId', shopId);
+  } catch (e: any) {
+    console.warn('[Supabase Delete Shop Menu Warning]:', e.message);
+  }
+
   const { error } = await supabase.from('shops').delete().eq('id', shopId);
   if (error) {
     console.error('[Supabase Delete Shop Error]:', error.message);
