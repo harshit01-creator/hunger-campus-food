@@ -2187,10 +2187,10 @@ export default function WebApp() {
               <div className="flex items-center gap-2">
                 <span className="font-heading font-extrabold text-2xl tracking-tight gradient-text">{t('appTitle', currentLang)}</span>
                 <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  Active
+                  {t('activeText', currentLang)}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 hidden sm:block">Camera QR Auto Handover</p>
+              <p className="text-[11px] text-slate-400 hidden sm:block">{t('appHeaderBanner', currentLang)}</p>
             </div>
           </div>
 
@@ -2198,7 +2198,7 @@ export default function WebApp() {
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input 
               type="text"
-              placeholder="Search dishes, discounts, canteens..."
+              placeholder={t('searchPlaceholder', currentLang)}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className={`w-full border rounded-xl pl-9 pr-4 py-1.5 text-xs focus:outline-none focus:border-blue-500 transition ${
@@ -2226,7 +2226,7 @@ export default function WebApp() {
               className={`p-2 rounded-xl text-xs font-bold transition border flex items-center gap-1.5 ${
                 theme === 'dark' ? 'bg-slate-900 hover:bg-slate-800 text-blue-400 border-slate-800' : 'bg-slate-100 hover:bg-slate-200 text-blue-600 border-slate-300'
               }`}
-              title="Share Vercel App Link"
+              title={t('shareAppTitle', currentLang)}
             >
               <Share2 className="w-4 h-4" />
               <span className="hidden md:inline">{t('copyVercelLink', currentLang)}</span>
@@ -2237,7 +2237,7 @@ export default function WebApp() {
               className={`p-2 rounded-xl text-xs font-bold transition border ${
                 theme === 'dark' ? 'bg-slate-900 hover:bg-slate-800 text-yellow-400 border-slate-800' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
               }`}
-              title="Toggle Light/Dark Theme"
+              title={t('toggleThemeTitle', currentLang)}
             >
               {theme === 'dark' ? <Sun className="w-4 h-4 text-yellow-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
             </button>
@@ -2247,7 +2247,7 @@ export default function WebApp() {
               className={`border p-2 rounded-xl text-xs transition flex items-center gap-1 ${
                 theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-100 border-slate-300 text-slate-700'
               }`}
-              title={`Last synced at ${lastSyncTime}`}
+              title={`${t('lastSyncedAt', currentLang)} ${lastSyncTime}`}
             >
               <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin-slow" />
             </button>
@@ -2353,15 +2353,15 @@ export default function WebApp() {
               <div className="relative z-10 max-w-2xl space-y-4">
                 <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 px-3 py-1 rounded-full text-xs font-semibold">
                   <Flame className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Welcome to Hunger, {currentUser.name}!</span>
+                  <span>{t('welcomeMessage', currentLang)}, {currentUser.name}!</span>
                 </div>
                 
                 <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight leading-tight">
-                  Campus Canteen Food <span className="gradient-text">Zero Queue Waiting</span>
+                  {t('heroTitlePart1', currentLang)} <span className="gradient-text">{t('heroTitlePart2', currentLang)}</span>
                 </h1>
                 
                 <p className="text-slate-400 text-sm sm:text-base leading-relaxed">
-                  Place your order on Hunger, pay directly to the shopkeeper's UPI QR code with instant payment verification, and scan your collection QR code for auto handover.
+                  {t('heroSubtitle', currentLang)}
                 </p>
 
                 <div className="flex flex-wrap gap-3 pt-2">
@@ -2369,7 +2369,7 @@ export default function WebApp() {
                     onClick={() => setActiveTab('menu')}
                     className="bg-gradient-to-r from-blue-700 to-emerald-600 hover:from-blue-800 hover:to-emerald-700 text-white font-bold px-6 py-3 rounded-xl shadow-lg shadow-blue-700/25 flex items-center gap-2 text-sm transition transform hover:-translate-y-0.5"
                   >
-                    <span>Browse Menu & Order</span>
+                    <span>{t('heroButton', currentLang)}</span>
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -2381,7 +2381,7 @@ export default function WebApp() {
               <div className="space-y-3">
                 <h3 className="text-sm font-extrabold flex items-center gap-2 text-emerald-500">
                   <Tag className="w-4 h-4" />
-                  <span>Active Shop Discounts & Offers</span>
+                  <span>{t('activeDiscountsTitle', currentLang)}</span>
                 </h3>
                 <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
                   {discounts.filter(d => d.isActive).map(disc => (
@@ -2408,7 +2408,7 @@ export default function WebApp() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold font-heading">{t('canteenShops', currentLang)} ({shops.length})</h2>
-                <span className="text-xs text-slate-400">Verified UPI QR Code Enabled</span>
+                <span className="text-xs text-slate-400">{t('verifiedUpiBadge', currentLang)}</span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -2440,9 +2440,9 @@ export default function WebApp() {
                     <div className={`pt-2 border-t flex items-center justify-between text-[11px] ${
                       theme === 'dark' ? 'border-slate-800/80 text-slate-400' : 'border-slate-200 text-slate-600'
                     }`}>
-                      <span>Time-Slot Availability</span>
+                      <span>{t('timeSlotAvailabilityBadge', currentLang)}</span>
                       <span className="text-emerald-500 font-semibold group-hover:translate-x-1 transition flex items-center">
-                        Menu &rarr;
+                        {t('menuArrow', currentLang)}
                       </span>
                     </div>
                   </div>
@@ -2454,7 +2454,7 @@ export default function WebApp() {
             <div className="space-y-4 pt-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold font-heading">{t('featuredDishes', currentLang)} ({filteredMenu.length})</h2>
-                <span className="text-xs text-slate-400">Dynamically updated</span>
+                <span className="text-xs text-slate-400">{t('dynamicallyUpdatedBadge', currentLang)}</span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -2497,7 +2497,7 @@ export default function WebApp() {
                               isSoldOut ? 'bg-red-950/80 border-red-500/40 text-red-400 font-extrabold' :
                               availableNow ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-400' : 'bg-red-950/80 border-red-500/40 text-red-400'
                             }`}>
-                              {isSoldOut ? '🔴 SOLD OUT' : availableNow ? `Available (${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'})` : `Slot Closed`}
+                              {isSoldOut ? `🔴 ${t('soldOutLabel', currentLang).toUpperCase()}` : availableNow ? `${t('activeText', currentLang)} (${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'})` : t('slotClosed', currentLang)}
                             </span>
                           </div>
                         </div>
@@ -2510,7 +2510,7 @@ export default function WebApp() {
                           <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">{item.description}</p>
                           {(!isSoldOut && item.stockLimit !== null && item.stockLimit !== undefined) && (
                             <p className="text-[10px] text-blue-400 font-semibold">
-                              Only {item.stockRemaining ?? 0} plates remaining!
+                              Only {item.stockRemaining ?? 0} {t('onlyRemainingLabel', currentLang)}
                             </p>
                           )}
                         </div>
@@ -2520,7 +2520,7 @@ export default function WebApp() {
                         theme === 'dark' ? 'border-slate-800/60' : 'border-slate-200'
                       }`}>
                         <div>
-                          <span className="text-xs text-slate-400">Price</span>
+                          <span className="text-xs text-slate-400">{t('priceLabel', currentLang)}</span>
                           <div className="flex items-center gap-2">
                             {hasDiscount && (
                               <span className="text-xs text-slate-500 line-through">₹{item.price}</span>
@@ -2558,7 +2558,7 @@ export default function WebApp() {
             }`}>
               <div>
                 <h2 className="text-2xl font-extrabold font-heading">{t('fullMenu', currentLang)} ({filteredMenu.length} items)</h2>
-                <p className="text-xs text-slate-400">Time-slot availability & shop payment QR enabled</p>
+                <p className="text-xs text-slate-400">{t('menuPageSubtitle', currentLang)}</p>
               </div>
 
               <div className="flex items-center gap-2">
@@ -2570,7 +2570,7 @@ export default function WebApp() {
                     theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-800'
                   }`}
                 >
-                  <option value="all">All Canteens & Shops ({shops.length})</option>
+                  <option value="all">{t('allCanteensFilter', currentLang)} ({shops.length})</option>
                   {shops.map(s => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
@@ -2613,7 +2613,7 @@ export default function WebApp() {
                         <p className="text-[11px] text-slate-400 line-clamp-2">{item.description}</p>
                         {(!isSoldOut && item.stockLimit !== null && item.stockLimit !== undefined) && (
                           <p className="text-[10px] text-blue-400 font-semibold">
-                            Only {item.stockRemaining ?? 0} remaining!
+                            Only {item.stockRemaining ?? 0} {t('onlyRemainingLabel', currentLang)}
                           </p>
                         )}
                         
@@ -2635,7 +2635,7 @@ export default function WebApp() {
                           ? (theme === 'dark' ? 'bg-emerald-950/80 text-emerald-400 border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border-emerald-200') 
                           : (theme === 'dark' ? 'bg-red-950/80 text-red-400 border-red-500/30' : 'bg-red-50 text-red-700 border-red-200')
                       }`}>
-                        {isSoldOut ? 'Sold Out' : availableNow ? `Slot: ${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'}` : t('slotClosed', currentLang)}
+                        {isSoldOut ? t('soldOutLabel', currentLang) : availableNow ? `${t('slotPrefix', currentLang)} ${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'}` : t('slotClosed', currentLang)}
                       </span>
 
                       {isSoldOut ? (
@@ -2643,7 +2643,7 @@ export default function WebApp() {
                           disabled={true}
                           className="px-3 py-1.5 rounded-xl font-semibold bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed"
                         >
-                          Sold Out
+                          {t('soldOutLabel', currentLang)}
                         </button>
                       ) : inCart ? (
                         <div className="flex items-center gap-3 bg-blue-700 text-white px-3 py-1 rounded-xl font-bold shadow-md shadow-blue-700/20">
@@ -2661,7 +2661,7 @@ export default function WebApp() {
                               : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
                           }`}
                         >
-                          + Add
+                          + {t('addToCart', currentLang)}
                         </button>
                       )}
                     </div>
@@ -2707,11 +2707,11 @@ export default function WebApp() {
                 </div>
 
                 <h2 className="text-3xl font-extrabold font-heading">
-                  {currentOrder.status === 'Completed' ? '✅ Food Handed Over!' : 
-                   currentOrder.status === 'Cancelled' ? '❌ Order Cancelled' :
-                   currentOrder.status === 'Ready for Pickup' ? '🍽️ Food is Ready — Please collect your order' :
-                   currentOrder.status === 'Accepted' ? '🍳 Kitchen is Preparing Your Meal...' :
-                   '⏳ Order Placed — Waiting for Canteen Acceptance'}
+                  {currentOrder.status === 'Completed' ? t('trackCompleted', currentLang) : 
+                   currentOrder.status === 'Cancelled' ? t('trackCancelled', currentLang) :
+                   currentOrder.status === 'Ready for Pickup' ? t('trackReady', currentLang) :
+                   currentOrder.status === 'Accepted' ? t('trackAccepted', currentLang) :
+                   t('trackPending', currentLang)}
                 </h2>
                 
                 <p className="text-xs text-slate-400">
