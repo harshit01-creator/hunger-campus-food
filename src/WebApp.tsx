@@ -678,7 +678,7 @@ export default function WebApp() {
       setIsSearchingImages(true);
       const query = itemForm.name.trim();
       const cleanQuery = query.replace(/[^\w\s-]/gi, '').replace(/\s+/g, ' ').trim();
-      const searchQuery = `${cleanQuery} food dish`;
+      const searchQuery = `${cleanQuery} food dish gourmet top view culinary plate photography`;
       const apiKey = (import.meta as any).env?.VITE_UNSPLASH_ACCESS_KEY || (import.meta as any).env?.VITE_IMAGE_SEARCH_API_KEY || '';
 
       try {
@@ -1993,6 +1993,8 @@ export default function WebApp() {
               <input 
                 type="email" 
                 required
+                autoCapitalize="none"
+                autoCorrect="off"
                 value={authEmail}
                 onChange={(e) => setAuthEmail(e.target.value)}
                 placeholder="Enter email address (@gmail.com)..."
@@ -2463,7 +2465,7 @@ export default function WebApp() {
                   const isSoldOut = isItemSoldOut(item);
 
                   return (
-                    <div key={item.id} className={`rounded-2xl overflow-hidden flex flex-col justify-between group border relative transition ${
+                    <div key={item.id} className={`rounded-2xl overflow-hidden flex flex-col justify-between min-h-[400px] group border relative transition ${
                       item.isSpecial ? 'border-amber-400/80 shadow-lg shadow-amber-400/10' :
                       theme === 'dark' ? 'glass-card border-slate-800' : 'bg-white border-slate-200 shadow-md'
                     }`}>
@@ -2596,8 +2598,12 @@ export default function WebApp() {
                       </span>
                     )}
 
-                    <div className="flex gap-4">
-                      <img src={getCategoryDefaultImage(item.category, item.image)} alt={item.name} className={`w-24 h-24 rounded-xl object-cover ${(!availableNow || isSoldOut) ? 'grayscale opacity-50' : ''}`} />
+                    <div className="flex flex-col sm:flex-row gap-4">
+                      <img 
+                        src={getCategoryDefaultImage(item.category, item.image)} 
+                        alt={item.name} 
+                        className={`w-full h-40 sm:w-24 sm:h-24 rounded-xl object-cover flex-shrink-0 ${(!availableNow || isSoldOut) ? 'grayscale opacity-50' : ''}`} 
+                      />
                       <div className="flex-1 space-y-1">
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-bold uppercase text-emerald-500 tracking-wider">{item.shopName}</span>
@@ -3543,6 +3549,8 @@ export default function WebApp() {
                 <input 
                   type="email" 
                   required
+                  autoCapitalize="none"
+                  autoCorrect="off"
                   value={newShopkeeperEmail}
                   onChange={(e) => setNewShopkeeperEmail(e.target.value)}
                   placeholder="e.g. owner@hunger.com"

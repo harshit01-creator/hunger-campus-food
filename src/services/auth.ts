@@ -178,8 +178,10 @@ export async function authenticateUser(
     return { success: false, message: 'Please enter both email and password.' };
   }
 
-  // 1. STRICT EXACT CASE-SENSITIVE SUPER ADMIN CHECK (No lowercasing or trimming)
-  if (emailInput === SUPER_ADMIN_EMAIL) {
+  const normalizedEmail = emailInput.trim().toLowerCase();
+
+  // 1. STRICT CASE-INSENSITIVE SUPER ADMIN CHECK
+  if (normalizedEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
     const isPasswordMatch = passwordInput === SUPER_ADMIN_PASSWORD || passwordInput === 'HarshitPassword2026!';
     if (isPasswordMatch) {
       const adminUser: UserAccount = {
@@ -195,8 +197,6 @@ export async function authenticateUser(
       return { success: false, message: 'Invalid email or password.' };
     }
   }
-
-  const normalizedEmail = emailInput.trim().toLowerCase();
 
   // Validate Gmail domain constraint
   if (!normalizedEmail.endsWith('@gmail.com')) {
