@@ -59,7 +59,7 @@ export const INITIAL_USERS: UserAccount[] = [
 
 export let usersStore: UserAccount[] = [...INITIAL_USERS];
 
-const STORAGE_USERS_KEY = 'hunger_users_data_v1';
+const STORAGE_USERS_KEY = 'turo_users_data_v1';
 
 export function loadUsersLocal(): UserAccount[] {
   try {
@@ -198,8 +198,8 @@ export async function authenticateUser(
     }
   }
 
-  // Validate Gmail domain constraint
-  if (!normalizedEmail.endsWith('@gmail.com')) {
+  // Validate Gmail domain constraint for customers
+  if (expectedLoginTab === 'customer' && !normalizedEmail.endsWith('@gmail.com')) {
     return { success: false, message: 'Only Gmail addresses are allowed.' };
   }
 
@@ -363,10 +363,7 @@ export async function createShopkeeperAccount(
 ): Promise<{ success: boolean; user?: UserAccount; message?: string }> {
   const normalizedEmail = email.trim().toLowerCase();
 
-  // Enforce Gmail constraint
-  if (!normalizedEmail.endsWith('@gmail.com')) {
-    return { success: false, message: 'Only Gmail addresses are allowed.' };
-  }
+
 
   const existing = await fetchUserByEmailFromSupabase(normalizedEmail);
   if (existing) {

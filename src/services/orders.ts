@@ -98,8 +98,8 @@ export async function createOrder(input: CreateOrderInput): Promise<{
   transactionId?: string;
   createdAt?: number;
 }> {
-  const orderId = `HUNGER-${Math.floor(1000 + Math.random() * 9000)}`;
-  const qrToken = `HUNGER-QR-${orderId}-${Date.now()}`;
+  const orderId = `TURO-${Math.floor(1000 + Math.random() * 9000)}`;
+  const qrToken = `TURO-QR-${orderId}-${Date.now()}`;
   const now = Date.now();
   
   const paymentStatus: PaymentStatus = input.isOnlineVerified ? 'Paid' : 'Pending';
@@ -191,7 +191,7 @@ export async function createOrder(input: CreateOrderInput): Promise<{
   saveMenuItems(updatedMenu);
 
   // Store order locally in local storage history fallback
-  const localOrders = JSON.parse(localStorage.getItem('hunger_local_orders') || '[]');
+  const localOrders = JSON.parse(localStorage.getItem('turo_local_orders') || '[]');
   const newOrder = {
     orderId,
     shopId: input.shopId,
@@ -208,7 +208,7 @@ export async function createOrder(input: CreateOrderInput): Promise<{
     createdAt: now,
     updatedAt: now
   };
-  localStorage.setItem('hunger_local_orders', JSON.stringify([newOrder, ...localOrders]));
+  localStorage.setItem('turo_local_orders', JSON.stringify([newOrder, ...localOrders]));
 
   // Attempt direct insertion to cloud table for tracking without locking
   try {

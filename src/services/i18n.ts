@@ -1,17 +1,17 @@
-// i18n Translation dictionary & language preference manager for Hunger App
+// i18n Translation dictionary & language preference manager for Turo App
 
 export type LanguageCode = 'en' | 'hi' | 'ta';
 
 export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
   en: {
     // Top-Level / Common
-    appTitle: 'Hunger',
+    appTitle: 'Turo',
     appSubtitle: 'Campus Food Ordering & Camera QR Auto Handover Platform',
     customerLogin: 'Customer Login',
     shopkeeperLogin: 'Shopkeeper Login',
     emailLabel: 'Email Address',
     passwordLabel: 'Password',
-    loginButton: 'Log In to Hunger',
+    loginButton: 'Log In to Turo',
     logout: 'Log Out',
     overview: 'Overview',
     fullMenu: 'Full Menu',
@@ -47,10 +47,10 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
     shareAppTitle: 'Share Vercel App Link',
     toggleThemeTitle: 'Toggle Light/Dark Theme',
     lastSyncedAt: 'Last synced at',
-    welcomeMessage: 'Welcome to Hunger',
+    welcomeMessage: 'Welcome to Turo',
     heroTitlePart1: 'Campus Canteen Food',
     heroTitlePart2: 'Zero Queue Waiting',
-    heroSubtitle: 'Place your order on Hunger, pay directly to the shopkeeper\'s UPI QR code with instant payment verification, and scan your collection QR code for auto handover.',
+    heroSubtitle: 'Place your order on Turo, pay directly to the shopkeeper\'s UPI QR code with instant payment verification, and scan your collection QR code for auto handover.',
     heroButton: 'Browse Menu & Order',
     activeDiscountsTitle: 'Active Shop Discounts & Offers',
     verifiedUpiBadge: 'Verified UPI QR Code Enabled',
@@ -125,13 +125,13 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
   },
   hi: {
     // Top-Level / Common
-    appTitle: 'हंगर (Hunger)',
+    appTitle: 'त्यूरो (Turo)',
     appSubtitle: 'कैंपस फूड ऑर्डरिंग और कैमरा क्यूआर ऑटो हैंडओवर प्लेटफॉर्म',
     customerLogin: 'छात्र लॉगिन',
     shopkeeperLogin: 'दुकानदार लॉगिन',
     emailLabel: 'ईमेल पता',
     passwordLabel: 'पासवर्ड',
-    loginButton: 'हंगर में लॉगिन करें',
+    loginButton: 'त्यूरो में लॉगिन करें',
     logout: 'लॉग आउट',
     overview: 'मुख्य पृष्ठ',
     fullMenu: 'पूरा मेनू',
@@ -167,10 +167,10 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
     shareAppTitle: 'शेयर ऐप लिंक 🌐',
     toggleThemeTitle: 'थीम बदलें ☀️/🌙',
     lastSyncedAt: 'आखिरी सिंक',
-    welcomeMessage: 'हंगर में आपका स्वागत है',
+    welcomeMessage: 'त्यूरो में आपका स्वागत है',
     heroTitlePart1: 'कैंपस कैंटीन फूड',
     heroTitlePart2: 'बिना कतार प्रतीक्षा के',
-    heroSubtitle: 'हंगर पर अपना ऑर्डर दें, तत्काल भुगतान सत्यापन के साथ सीधे दुकानदार के यूपीआई क्यूआर कोड पर भुगतान करें, और ऑटो हैंडओवर के लिए अपने संग्रह क्यूआर कोड को स्कैन करें।',
+    heroSubtitle: 'त्यूरो पर अपना ऑर्डर दें, तत्काल भुगतान सत्यापन के साथ सीधे दुकानदार के यूपीआई क्यूआर कोड पर भुगतान करें, और ऑटो हैंडओवर के लिए अपने संग्रह क्यूआर कोड को स्कैन करें।',
     heroButton: 'मेनू ब्राउज़ करें और ऑर्डर करें',
     activeDiscountsTitle: 'सक्रिय दुकान छूट और ऑफ़र',
     verifiedUpiBadge: 'सत्यापित यूपीआई क्यूआर कोड सक्षम',
@@ -245,13 +245,13 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
   },
   ta: {
     // Top-Level / Common
-    appTitle: 'ஹங்கர் (Hunger)',
+    appTitle: 'டியூரோ (Turo)',
     appSubtitle: 'கேம்பஸ் உணவு ஆர்டர் மற்றும் கேமரா QR ஆட்டோ ஹேண்டோவர் தளம்',
     customerLogin: 'மாணவர் உள்நுழைவு',
     shopkeeperLogin: 'கடைக்காரர் உள்நுழைவு',
     emailLabel: 'மின்னஞ்சல் முகவரி',
     passwordLabel: 'கடவுச்சொல்',
-    loginButton: 'ஹங்கரில் உள்நுழையவும்',
+    loginButton: 'டியூரோவில் உள்நுழையவும்',
     logout: 'வெளியேறு',
     overview: 'முகப்பு',
     fullMenu: 'முழு மெனு',
@@ -287,10 +287,10 @@ export const TRANSLATIONS: Record<LanguageCode, Record<string, string>> = {
     shareAppTitle: 'பகிரவும் ஆப் லிங்க் 🌐',
     toggleThemeTitle: 'தீம் மாற்றவும் ☀️/🌙',
     lastSyncedAt: 'கடைசி ஒத்திசைவு',
-    welcomeMessage: 'ஹங்கருக்கு வரவேற்கிறோம்',
+    welcomeMessage: 'டியூரோவுக்கு வரவேற்கிறோம்',
     heroTitlePart1: 'கேம்பஸ் உணவகம்',
     heroTitlePart2: 'வரிசையில்லா காத்திருப்பு',
-    heroSubtitle: 'ஹங்கரில் உங்கள் ஆர்டரைச் செய்து, கடைக்காரரின் UPI QR குறியீட்டில் நேரடியாகப் பணம் செலுத்தி, உடனடியாக ஆர்டர் ஹேண்டோவர் செய்ய உங்கள் QR குறியீட்டை ஸ்கேன் செய்யுங்கள்.',
+    heroSubtitle: 'டியூரோவில் உங்கள் ஆர்டரைச் செய்து, கடைக்காரரின் UPI QR குறியீட்டில் நேரடியாகப் பணம் செலுத்தி, உடனடியாக ஆர்டர் ஹேண்டோவர் செய்ய உங்கள் QR குறியீட்டை ஸ்கேன் செய்யுங்கள்.',
     heroButton: 'மெனுவை ஆராய்ந்து ஆர்டர் செய்',
     activeDiscountsTitle: 'செயலில் உள்ள தள்ளுபடிகள் மற்றும் சலுகைகள்',
     verifiedUpiBadge: 'சரிபார்க்கப்பட்ட UPI QR குறியீடு',

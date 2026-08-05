@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.campus.hunger',
-  appName: 'Hunger',
+  appId: 'com.campus.turo',
+  appName: 'Turo',
   webDir: 'dist'
 };
 

@@ -55,16 +55,16 @@ export function getCategoryDefaultImage(category: string, customImage?: string):
 export const INITIAL_SHOPS: ShopAccount[] = [
   { 
     id: 'shop-1', 
-    name: 'Hunger Central Canteen', 
-    email: 'canteen@hunger.com', 
-    upiId: 'hungercanteen@okaxis', 
-    qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=hungercanteen@okaxis&pn=Hunger%20Central%20Canteen',
+    name: 'Turo Central Canteen', 
+    email: 'canteen@turo.com', 
+    upiId: 'turocanteen@okaxis', 
+    qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=turocanteen@okaxis&pn=Turo%20Central%20Canteen',
     rating: 4.8 
   },
   { 
     id: 'shop-2', 
     name: 'Madras Tiffins', 
-    email: 'madrastiffins@hunger.com', 
+    email: 'madrastiffins@turo.com', 
     upiId: 'madrastiffins@upi', 
     qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=madrastiffins@upi&pn=Madras%20Tiffins',
     rating: 4.9 
@@ -72,7 +72,7 @@ export const INITIAL_SHOPS: ShopAccount[] = [
   { 
     id: 'shop-3', 
     name: 'Sip & Snack Express', 
-    email: 'sipsnack@hunger.com', 
+    email: 'sipsnack@turo.com', 
     upiId: 'sipsnack@okicici', 
     qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=sipsnack@okicici&pn=Sip%20Snack',
     rating: 4.7 
@@ -80,7 +80,7 @@ export const INITIAL_SHOPS: ShopAccount[] = [
   { 
     id: 'shop-4', 
     name: 'Campus Grill House', 
-    email: 'grill@hunger.com', 
+    email: 'grill@turo.com', 
     upiId: 'campusgrill@ybl', 
     qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=campusgrill@ybl&pn=Campus%20Grill',
     rating: 4.6 
@@ -118,7 +118,7 @@ export const INITIAL_MENU: FoodItem[] = [
     image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&auto=format&fit=crop&q=80',
     isVeg: true,
     shopId: 'shop-1',
-    shopName: 'Hunger Central Canteen',
+    shopName: 'Turo Central Canteen',
     description: 'Juicy spiced cottage cheese patty topped with melted cheddar, fresh lettuce & house burger sauce.',
     isAvailable: true,
     availableFrom: '11:00',
@@ -157,7 +157,7 @@ export const INITIAL_MENU: FoodItem[] = [
     image: 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=500&auto=format&fit=crop&q=80',
     isVeg: true,
     shopId: 'shop-1',
-    shopName: 'Hunger Central Canteen',
+    shopName: 'Turo Central Canteen',
     description: 'Creamy cottage cheese gravy served with 2 Butter Naans and fragrant Jeera Rice.',
     isAvailable: true,
     availableFrom: '12:00',
@@ -206,8 +206,8 @@ export const INITIAL_MENU: FoodItem[] = [
   }
 ];
 
-const STORAGE_SHOPS_KEY = 'hunger_shops_data_v4';
-const STORAGE_MENU_KEY = 'hunger_menu_data_v4';
+const STORAGE_SHOPS_KEY = 'turo_shops_data_v4';
+const STORAGE_MENU_KEY = 'turo_menu_data_v4';
 
 export function loadShops(): ShopAccount[] {
   try {
@@ -225,7 +225,7 @@ export function loadShops(): ShopAccount[] {
 export function saveShops(shops: ShopAccount[]): void {
   try {
     localStorage.setItem(STORAGE_SHOPS_KEY, JSON.stringify(shops));
-    window.dispatchEvent(new Event('hunger_shops_updated'));
+    window.dispatchEvent(new Event('turo_shops_updated'));
   } catch (e) {
     console.error('[shopsAndMenu] Error saving shops:', e);
   }
@@ -247,7 +247,7 @@ export function loadMenuItems(): FoodItem[] {
 export function saveMenuItems(menu: FoodItem[]): void {
   try {
     localStorage.setItem(STORAGE_MENU_KEY, JSON.stringify(menu));
-    window.dispatchEvent(new Event('hunger_menu_updated'));
+    window.dispatchEvent(new Event('turo_menu_updated'));
   } catch (e) {
     console.error('[shopsAndMenu] Error saving menu:', e);
   }

@@ -223,7 +223,7 @@ function generateReceiptImage(order: Order): string {
   currentY += 65;
   ctx.fillStyle = '#94a3b8'; // slate-400
   ctx.font = 'italic 11px "Inter", sans-serif';
-  ctx.fillText('Thank you for ordering with Hunger!', canvas.width / 2, currentY);
+  ctx.fillText('Thank you for ordering with Turo!', canvas.width / 2, currentY);
   
   return canvas.toDataURL('image/png');
 }export function mapDbOrderToFrontend(dbOrder: any, shopsList: ShopAccount[], menuItemsList: FoodItem[]): Order {
@@ -293,7 +293,7 @@ export default function WebApp() {
   // Theme State
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
-      const saved = localStorage.getItem('hunger_theme_pref');
+      const saved = localStorage.getItem('turo_theme_pref');
       if (saved === 'dark' || saved === 'light') return saved;
       return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     } catch {
@@ -304,7 +304,7 @@ export default function WebApp() {
   const toggleTheme = () => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(nextTheme);
-    localStorage.setItem('hunger_theme_pref', nextTheme);
+    localStorage.setItem('turo_theme_pref', nextTheme);
   };
 
   // i18n Multi-Language State
@@ -320,7 +320,7 @@ export default function WebApp() {
   const vercelAppUrl = 'https://hunger-campus-food.vercel.app';
 
   // Navigation & Session State
-  const SESSION_USER_KEY = 'hunger_session_user_v1';
+  const SESSION_USER_KEY = 'turo_session_user_v1';
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [activeTab, setActiveTab] = useState<'home' | 'menu' | 'tracking' | 'owner' | 'admin'>('home');
 
@@ -441,9 +441,9 @@ export default function WebApp() {
     };
 
     window.addEventListener('storage', handleSync);
-    window.addEventListener('hunger_shops_updated', handleSync);
-    window.addEventListener('hunger_menu_updated', handleSync);
-    window.addEventListener('hunger_discounts_updated', handleSync);
+    window.addEventListener('turo_shops_updated', handleSync);
+    window.addEventListener('turo_menu_updated', handleSync);
+    window.addEventListener('turo_discounts_updated', handleSync);
     window.addEventListener('focus', handleSync);
 
     // 1. Subscribe to 'shops' table updates
@@ -498,9 +498,9 @@ export default function WebApp() {
 
     return () => {
       window.removeEventListener('storage', handleSync);
-      window.removeEventListener('hunger_shops_updated', handleSync);
-      window.removeEventListener('hunger_menu_updated', handleSync);
-      window.removeEventListener('hunger_discounts_updated', handleSync);
+      window.removeEventListener('turo_shops_updated', handleSync);
+      window.removeEventListener('turo_menu_updated', handleSync);
+      window.removeEventListener('turo_discounts_updated', handleSync);
       window.removeEventListener('focus', handleSync);
 
       supabase.removeChannel(shopsChannel);
@@ -733,7 +733,7 @@ export default function WebApp() {
           'https://images.unsplash.com/photo-1633945274405-b6c8069047b0?w=500&auto=format&fit=crop&q=80', // Paneer Butter Masala
           'https://images.unsplash.com/photo-1645177625172-595e25c1620f?w=500&auto=format&fit=crop&q=80'  // Biryani
         ];
-      } else if (lowerQuery.includes('cake') || lowerQuery.includes('ice') || lowerQuery.includes('sweet') || lowerQuery.includes('dessert') || lowerQuery.includes('chocolate')) {
+      } else if (lowerQuery.includes('cake') || lowerQuery.includes('ice') || lowerQuery.includes('sweet') || lowerQuery.includes('dessert') || lowerQuery.includes('chocolate') || lowerQuery.includes('waffle') || lowerQuery.includes('waffles')) {
         matchedImages = [
           'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=500&auto=format&fit=crop&q=80', // Dessert
           'https://images.unsplash.com/photo-1563729784474-d77dbb933a9e?w=500&auto=format&fit=crop&q=80', // Ice Cream
@@ -814,7 +814,7 @@ export default function WebApp() {
         async (payload: any) => {
           const updatedOrder = payload.new;
           if (updatedOrder.customerId === currentUser.id && updatedOrder.status === 'Ready for Pickup') {
-            const token = updatedOrder.orderId ? updatedOrder.orderId.split('-')[1] || updatedOrder.orderId : 'HUNGER-XXXX';
+            const token = updatedOrder.orderId ? updatedOrder.orderId.split('-')[1] || updatedOrder.orderId : 'TURO-XXXX';
             const shopName = updatedOrder.shopName || 'Campus Canteen';
             
             if ('Notification' in window && Notification.permission === 'granted') {
@@ -1047,6 +1047,8 @@ export default function WebApp() {
     const targetEmail = directEmail || authEmail;
     const targetPassword = directPassword || authPassword;
 
+    console.log(`[Auth Submit Payload Log] email: "${targetEmail}" (len: ${targetEmail?.length}), password length: ${targetPassword?.length}, authTab: "${authTab}", customerMode: "${customerMode}"`);
+
     if (!targetEmail || !targetPassword) {
       setAuthError('Please enter both email address and password.');
       return;
@@ -1054,7 +1056,7 @@ export default function WebApp() {
 
     // Frontend Gmail constraint validation
     const checkEmail = targetEmail.trim().toLowerCase();
-    if (targetEmail !== SUPER_ADMIN_EMAIL && !checkEmail.endsWith('@gmail.com')) {
+    if (authTab === 'customer' && targetEmail !== SUPER_ADMIN_EMAIL && !checkEmail.endsWith('@gmail.com')) {
       setAuthError('Only Gmail addresses are allowed.');
       return;
     }
@@ -1711,7 +1713,7 @@ export default function WebApp() {
   const activeShopForOwner = shops.find(s => s.id === (currentUser?.shopId || 'shop-1')) || {
     id: currentUser?.shopId || 'shop-1',
     name: currentUser?.name ? `${currentUser.name}'s Canteen` : 'Campus Canteen',
-    email: currentUser?.email || 'canteen@hunger.com',
+    email: currentUser?.email || 'canteen@turo.com',
     upiId: `${(currentUser?.shopId || 'shop1').replace(/[^a-zA-Z0-9]/g, '')}@okaxis`,
     qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=canteen@okaxis&pn=Canteen',
     rating: 4.8
@@ -1884,7 +1886,7 @@ export default function WebApp() {
 
           <div className="text-center space-y-2">
             <div className="w-16 h-16 logo-badge mx-auto mb-2">
-              <img src={kprLogo} alt="Hunger Logo" className="w-full h-full object-contain" />
+              <img src={kprLogo} alt="Turo Logo" className="w-full h-full object-contain" />
             </div>
             <h1 className={`font-heading font-extrabold text-3xl sm:text-4xl ${
               theme === 'dark' ? 'text-blue-400' : 'text-blue-600'
@@ -1995,6 +1997,7 @@ export default function WebApp() {
                 required
                 autoCapitalize="none"
                 autoCorrect="off"
+                {...{ autocapitalize: 'off', autocorrect: 'off' }}
                 value={authEmail}
                 onChange={(e) => setAuthEmail(e.target.value)}
                 placeholder="Enter email address (@gmail.com)..."
@@ -2181,7 +2184,7 @@ export default function WebApp() {
           
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('home')}>
             <div className="w-10 h-10 logo-badge">
-              <img src={kprLogo} alt="Hunger Logo" className="w-full h-full object-contain" />
+              <img src={kprLogo} alt="Turo Logo" className="w-full h-full object-contain" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -2892,7 +2895,7 @@ export default function WebApp() {
                             <div className="flex gap-1.5">
                               <input 
                                 type="text"
-                                placeholder="e.g. HUNGER-1234"
+                                placeholder="e.g. TURO-1234"
                                 id="manual-fallback-token"
                                 className={`flex-1 border rounded-lg px-2 py-1.5 text-[11px] focus:outline-none font-mono ${
                                   theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-300 text-slate-850'
@@ -2964,7 +2967,7 @@ export default function WebApp() {
                         </span>
                         <h4 className="font-bold text-xs">Simulate Counter Scan (Testing)</h4>
                         <p className="text-[10px] text-slate-400 leading-relaxed">
-                          Copy the customer's QR Token or Order ID (e.g. `HUNGER-3456`) and paste it below to simulate verification without using a physical camera.
+                          Copy the customer's QR Token or Order ID (e.g. `TURO-3456`) and paste it below to simulate verification without using a physical camera.
                         </p>
                       </div>
 
@@ -3551,9 +3554,10 @@ export default function WebApp() {
                   required
                   autoCapitalize="none"
                   autoCorrect="off"
+                  {...{ autocapitalize: 'off', autocorrect: 'off' }}
                   value={newShopkeeperEmail}
                   onChange={(e) => setNewShopkeeperEmail(e.target.value)}
-                  placeholder="e.g. owner@hunger.com"
+                  placeholder="e.g. owner@turo.com"
                   className={`w-full border rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-purple-500 ${
                     theme === 'dark' ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-300 text-slate-900'
                   }`}

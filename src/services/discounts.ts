@@ -23,8 +23,8 @@ export const INITIAL_DISCOUNTS: DiscountOffer[] = [
   {
     id: 'disc-1',
     shopId: 'shop-1',
-    code: 'HUNGER20',
-    title: 'Hunger Canteen 20% Off Fast Food',
+    code: 'TURO20',
+    title: 'Turo Canteen 20% Off Fast Food',
     type: 'percentage',
     value: 20,
     appliesTo: 'category',
@@ -49,7 +49,7 @@ export const INITIAL_DISCOUNTS: DiscountOffer[] = [
   }
 ];
 
-const STORAGE_DISCOUNTS_KEY = 'hunger_discounts_data_v1';
+const STORAGE_DISCOUNTS_KEY = 'turo_discounts_data_v1';
 
 export function loadDiscounts(): DiscountOffer[] {
   try {
@@ -67,7 +67,7 @@ export function loadDiscounts(): DiscountOffer[] {
 export function saveDiscounts(discounts: DiscountOffer[]): void {
   try {
     localStorage.setItem(STORAGE_DISCOUNTS_KEY, JSON.stringify(discounts));
-    window.dispatchEvent(new Event('hunger_discounts_updated'));
+    window.dispatchEvent(new Event('turo_discounts_updated'));
   } catch (e) {
     console.error('[discounts] Storage save error:', e);
   }
