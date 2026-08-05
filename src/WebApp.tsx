@@ -17,6 +17,7 @@ import {
 } from './services/auth';
 import {
   createOrder as createOrderApi,
+  confirmOrderPayment as confirmOrderPaymentApi,
   markFoodReady as markFoodReadyApi,
   verifyAndProcessQrHandover as verifyAndProcessQrHandoverApi,
   acceptOrder as acceptOrderApi,
@@ -358,6 +359,8 @@ export default function WebApp() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('Online UPI');
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
+  const [isPlacingPendingOrder, setIsPlacingPendingOrder] = useState(false);
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
 
@@ -888,6 +891,64 @@ export default function WebApp() {
     };
   }, [ordersHistory]);
 
+  // Synchronize incoming active order for the shopkeeper dashboard
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'shopkeeper' || !ordersHistory) return;
+    
+    // Find the active shop ID for this owner
+    const shopId = currentUser.shopId || (shops.find(s => s.email === currentUser.email)?.id);
+    if (!shopId) return;
+
+    // Filter active orders that have been successfully PAID
+    const activeOrders = ordersHistory.filter(o => 
+      o.shopId === shopId && 
+      ['Pending', 'Accepted', 'Ready for Pickup'].includes(o.status) &&
+      o.paymentStatus === 'Paid'
+    );
+
+    // If currentOrder is null or is not in the active shop orders anymore, set it to the first active order
+    if (activeOrders.length > 0) {
+      const exists = currentOrder && activeOrders.some(o => o.id === currentOrder.id);
+      if (!exists) {
+        setCurrentOrder(activeOrders[0]);
+      } else {
+        // Keep it synchronized with status updates
+        const updated = activeOrders.find(o => o.id === currentOrder!.id);
+        if (updated && JSON.stringify(updated) !== JSON.stringify(currentOrder)) {
+          setCurrentOrder(updated);
+        }
+      }
+    } else {
+      if (currentOrder) {
+        setCurrentOrder(null);
+      }
+    }
+  }, [currentUser, ordersHistory, shops, currentOrder]);
+
+  // Auto-restore customer's active tracking order on load/sync
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'customer' || !ordersHistory) return;
+    
+    // Find the latest active order (Paid, not completed/cancelled yet)
+    const latestActive = ordersHistory.find(o => 
+      o.customerId === currentUser.id && 
+      ['Pending', 'Accepted', 'Ready for Pickup'].includes(o.status) &&
+      o.paymentStatus === 'Paid'
+    );
+
+    if (latestActive) {
+      if (!currentOrder || currentOrder.id !== latestActive.id) {
+        setCurrentOrder(latestActive);
+      } else if (JSON.stringify(latestActive) !== JSON.stringify(currentOrder)) {
+        setCurrentOrder(latestActive);
+      }
+    } else {
+      if (currentOrder && (currentOrder.status === 'Completed' || currentOrder.status === 'Cancelled')) {
+        // Keep completion screen intact unless tab changes
+      }
+    }
+  }, [currentUser, ordersHistory, currentOrder]);
+
   // Trigger Web Push Notification to specific customer (OneSignal REST integration or local fallback)
   const dispatchPushNotificationToCustomer = async (orderId: string, customerId: string, shopName: string) => {
     try {
@@ -1156,82 +1217,116 @@ export default function WebApp() {
       alert(`Sorry, "${soldOutItemName}" has just sold out! Please remove it from your cart before checking out.`);
       return;
     }
+    setPendingOrderId(null);
     setIsCheckoutOpen(true);
   };
 
-  // UNIQUE PER-ORDER PLACEMENT WITH DISCOUNT PRESERVATION & STATUS: 'Pending'
-  const handlePlaceOrder = async () => {
+
+
+  const handleStartPaymentVerification = async () => {
     if (cart.length === 0) return;
-    const targetShop = currentCheckoutShop;
-    const isOnline = selectedPaymentMethod === 'Online UPI';
 
-    const grandTotal = cartSubtotal + 15;
-
-    const apiRes = await createOrderApi({
-      shopId: targetShop.id,
-      items: cart.map(i => ({ id: i.id, name: i.name, price: i.discountedPrice, qty: i.qty })),
-      grandTotal,
-      paymentMethod: selectedPaymentMethod,
-      isOnlineVerified: true // Enforced true because payment-before-navigation succeeded!
-    });
-
-    if (!apiRes.success) {
-      alert(apiRes.message || 'Payment succeeded, but order placement failed due to stock changes. Please contact canteen support for a refund.');
+    // Reuse existing pending order if created for this checkout window
+    if (pendingOrderId) {
+      setIsPayingGateway(true);
+      setGatewayStatus('waiting');
+      setGatewayError(null);
+      setIsCheckoutOpen(false);
       return;
     }
 
-    const orderId = apiRes.orderId!;
-    const uniqueQrToken = apiRes.qrToken!;
-    const createdAtTimestamp = apiRes.createdAt || Date.now();
+    setIsPlacingPendingOrder(true);
+    try {
+      const targetShop = currentCheckoutShop;
+      const grandTotal = cartSubtotal + 15;
 
-    const newOrder: Order = {
-      id: orderId,
-      shopId: targetShop.id,
-      shopName: targetShop.name,
-      customerId: currentUser?.id || 'guest-1',
-      customerName: currentUser?.name || 'Student Customer',
-      items: [...cart],
-      grandTotal,
-      paymentMethod: selectedPaymentMethod,
-      paymentStatus: 'Paid', // Enforced Paid
-      transactionId: apiRes.transactionId,
-      paidAt: new Date().toLocaleTimeString(),
-      status: 'Pending',
-      createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      createdAtTimestamp,
-      estimatedMinutes: 12,
-      qrToken: uniqueQrToken,
-      payeeUpiId: targetShop.upiId,
-      payeeQrUrl: targetShop.qrImageUrl
-    };
+      const apiRes = await createOrderApi({
+        shopId: targetShop.id,
+        items: cart.map(i => ({ id: i.id, name: i.name, price: i.discountedPrice, qty: i.qty })),
+        grandTotal,
+        paymentMethod: selectedPaymentMethod
+      });
 
-    setCurrentOrder(newOrder);
-    setOrdersHistory(prev => [newOrder, ...prev]);
-    setCart([]);
-    setIsCheckoutOpen(false);
-    setIsCartOpen(false);
-    setActiveTab('tracking');
+      if (!apiRes.success) {
+        alert(apiRes.message || 'Order placement failed. Items may have sold out.');
+        return;
+      }
 
-    confetti({
-      particleCount: 120,
-      spread: 70,
-      origin: { y: 0.6 }
-    });
-  };
-
-  const handleStartPaymentVerification = () => {
-    setIsPayingGateway(true);
-    setGatewayStatus('waiting');
-    setGatewayError(null);
+      setPendingOrderId(apiRes.orderId!);
+      setIsPayingGateway(true);
+      setGatewayStatus('waiting');
+      setGatewayError(null);
+      setIsCheckoutOpen(false);
+    } catch (err: any) {
+      alert(`Error placing pending order: ${err.message}`);
+    } finally {
+      setIsPlacingPendingOrder(false);
+    }
   };
 
   const handleGatewaySuccess = async () => {
     setGatewayStatus('success');
-    // Simulate server processing time (1.2 seconds)
+    
+    // Simulate webhook callback arrival & server-side payment verification (1.5s delay)
     setTimeout(async () => {
-      await handlePlaceOrder();
-      setIsPayingGateway(false);
-    }, 1200);
+      if (!pendingOrderId) {
+        setGatewayStatus('failed');
+        setGatewayError('No pending order ID found.');
+        return;
+      }
+
+      try {
+        const txnId = `UPI-TXN-${Math.floor(1000000000 + Math.random() * 9000000000)}`;
+        const res = await confirmOrderPaymentApi(pendingOrderId, txnId, true);
+
+        if (res.success && res.qrToken) {
+          const targetShop = currentCheckoutShop;
+          const grandTotal = cartSubtotal + 15;
+
+          const newOrder: Order = {
+            id: pendingOrderId,
+            shopId: targetShop.id,
+            shopName: targetShop.name,
+            customerId: currentUser?.id || 'guest-1',
+            customerName: currentUser?.name || 'Student Customer',
+            items: [...cart],
+            grandTotal,
+            paymentMethod: selectedPaymentMethod,
+            paymentStatus: 'Paid',
+            transactionId: txnId,
+            paidAt: new Date().toLocaleTimeString(),
+            status: 'Pending',
+            createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            createdAtTimestamp: Date.now(),
+            estimatedMinutes: 12,
+            qrToken: res.qrToken,
+            payeeUpiId: targetShop.upiId,
+            payeeQrUrl: targetShop.qrImageUrl
+          };
+
+          setCurrentOrder(newOrder);
+          setOrdersHistory(prev => [newOrder, ...prev]);
+          setCart([]);
+          setIsCheckoutOpen(false);
+          setIsCartOpen(false);
+          setIsPayingGateway(false);
+          setPendingOrderId(null);
+          setActiveTab('tracking');
+
+          confetti({
+            particleCount: 120,
+            spread: 70,
+            origin: { y: 0.6 }
+          });
+        } else {
+          setGatewayStatus('failed');
+          setGatewayError(res.message || 'Payment confirmed, but server receipt generation failed.');
+        }
+      } catch (err: any) {
+        setGatewayStatus('failed');
+        setGatewayError(`Server verification failed: ${err.message}`);
+      }
+    }, 1500);
   };
 
   const handleGatewayFailure = () => {
@@ -4025,9 +4120,21 @@ export default function WebApp() {
 
             <button 
               onClick={handleStartPaymentVerification}
-              className="w-full bg-gradient-to-r from-blue-700 to-emerald-600 text-white font-extrabold py-3.5 rounded-2xl text-sm shadow-xl shadow-blue-700/30"
+              disabled={isPlacingPendingOrder}
+              className={`w-full font-extrabold py-3.5 rounded-2xl text-sm shadow-xl shadow-blue-700/30 transition-all flex items-center justify-center gap-2 ${
+                isPlacingPendingOrder 
+                  ? 'bg-slate-700 text-slate-400 cursor-not-allowed shadow-none' 
+                  : 'bg-gradient-to-r from-blue-700 to-emerald-600 text-white hover:opacity-95'
+              }`}
             >
-              Verify Payment & Place Order (₹{cartSubtotal + 15}) &rarr;
+              {isPlacingPendingOrder ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></span>
+                  <span>Placing Pending Order...</span>
+                </>
+              ) : (
+                `Verify Payment & Place Order (₹${cartSubtotal + 15}) →`
+              )}
             </button>
           </div>
         </div>
@@ -4065,8 +4172,8 @@ export default function WebApp() {
             {gatewayStatus === 'success' && (
               <div className="space-y-3 py-4 text-emerald-500 animate-scaleIn">
                 <Check className="w-12 h-12 mx-auto bg-emerald-500/20 rounded-full p-2.5 border border-emerald-500/40 animate-ping" />
-                <h4 className="font-bold text-sm">🎉 Webhook Callback Verified!</h4>
-                <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Payment status: PAID. Confirming order creation...</p>
+                <h4 className="font-bold text-sm">🎉 Confirming payment...</h4>
+                <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Generating secure receipt & collection token from server...</p>
               </div>
             )}
 

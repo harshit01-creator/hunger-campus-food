@@ -99,12 +99,13 @@ export async function createOrder(input: CreateOrderInput): Promise<{
   createdAt?: number;
 }> {
   const orderId = `TURO-${Math.floor(1000 + Math.random() * 9000)}`;
-  const qrToken = `TURO-QR-${orderId}-${Date.now()}`;
+  // QR/token is NOT created on order submission (set to PENDING- ID to block receipt rendering)
+  const qrToken = `PENDING-${orderId}`;
   const now = Date.now();
   
-  const paymentStatus: PaymentStatus = input.isOnlineVerified ? 'Paid' : 'Pending';
-  const transactionId = input.transactionId || `UPI-TXN-${Math.floor(1000000000 + Math.random() * 9000000000)}`;
-  const paidAt = paymentStatus === 'Paid' ? now : null;
+  const paymentStatus: PaymentStatus = 'Pending';
+  const transactionId = `PENDING-TXN-${orderId}`;
+  const paidAt = null;
 
   try {
     const itemsPayload = input.items.map(item => ({
@@ -130,7 +131,7 @@ export async function createOrder(input: CreateOrderInput): Promise<{
 
     if (!error && data) {
       if (data.success) {
-        return { success: true, message: 'Order placed successfully', orderId, qrToken, paymentStatus, transactionId, createdAt: now };
+        return { success: true, message: 'Order placed, pending payment', orderId, qrToken, paymentStatus, transactionId, createdAt: now };
       } else {
         return { success: false, message: data.message || 'Stock verification failed.' };
       }
@@ -226,7 +227,82 @@ export async function createOrder(input: CreateOrderInput): Promise<{
     console.log('[Supabase client insert failed in local mode fallback]');
   }
 
-  return { success: true, message: 'Order placed successfully', orderId, qrToken, paymentStatus, transactionId, createdAt: now };
+  return { success: true, message: 'Order placed, pending payment', orderId, qrToken, paymentStatus, transactionId, createdAt: now };
+}
+
+/** confirmOrderPayment: Simulates webhook/callback to verify payment and generate receipt/token server-side */
+export async function confirmOrderPayment(
+  orderId: string,
+  transactionId: string,
+  paymentConfirmed: boolean
+): Promise<{ success: boolean; message: string; qrToken?: string; order?: any }> {
+  // BACKEND ENFORCEMENT CHECK
+  if (!paymentConfirmed) {
+    console.error(`[SECURITY ERROR] confirmOrderPayment attempt rejected for order #${orderId}: Payment status is unconfirmed!`);
+    return { success: false, message: 'Refusing to generate receipt: Confirmed payment status is missing!' };
+  }
+
+  const now = Date.now();
+  // ONLY HERE: receipt/token is generated once successful payment is verified
+  const qrToken = `TURO-QR-${orderId}-${now}`;
+
+  try {
+    const { data, error } = await supabase
+      .from(ORDERS)
+      .update({
+        paymentStatus: 'Paid',
+        paidAt: now,
+        qrToken: qrToken,
+        transactionId: transactionId,
+        updatedAt: now
+      })
+      .eq('orderId', orderId)
+      .select('*')
+      .single();
+
+    if (!error && data) {
+      console.log(`[Supabase Webhook Success] Generated receipt & QR token for order #${orderId}`);
+      
+      // Update local storage fallback copy
+      const localOrders = JSON.parse(localStorage.getItem('turo_local_orders') || '[]');
+      const updated = localOrders.map((o: any) => {
+        if (o.orderId === orderId) {
+          return {
+            ...o,
+            paymentStatus: 'Paid',
+            paidAt: now,
+            qrToken,
+            transactionId
+          };
+        }
+        return o;
+      });
+      localStorage.setItem('turo_local_orders', JSON.stringify(updated));
+
+      return { success: true, message: 'Payment confirmed and receipt generated.', qrToken, order: data };
+    }
+    if (error) {
+      console.warn('[Supabase Webhook error]:', error.message);
+    }
+  } catch (err: any) {
+    console.warn('[Supabase Webhook exception]:', err.message);
+  }
+
+  // Local storage fallback
+  const localOrders = JSON.parse(localStorage.getItem('turo_local_orders') || '[]');
+  const matchedIndex = localOrders.findIndex((o: any) => o.orderId === orderId);
+  if (matchedIndex >= 0) {
+    const matched = localOrders[matchedIndex];
+    matched.paymentStatus = 'Paid';
+    matched.paidAt = now;
+    matched.qrToken = qrToken;
+    matched.transactionId = transactionId;
+    matched.updatedAt = now;
+    localStorage.setItem('turo_local_orders', JSON.stringify(localOrders));
+    return { success: true, message: 'Payment confirmed & receipt generated (local fallback)', qrToken, order: matched };
+  }
+
+  return { success: false, message: 'Order not found in database or local storage.' };
 }
 
 /** Shopkeeper action: Accept Order (Locks order, moves status from Pending -> Accepted) */
