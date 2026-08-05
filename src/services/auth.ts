@@ -403,10 +403,13 @@ export async function createShopkeeperAccount(
 
 /** Initiate Google OAuth Sign In */
 export async function signInWithGoogle() {
+  const redirectUrl = window.location.origin;
+  console.log(`[Google Auth] Initiating Google Sign-In with dynamic redirect origin: "${redirectUrl}"`);
+  
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: window.location.origin
+      redirectTo: redirectUrl
     }
   });
   if (error) {
