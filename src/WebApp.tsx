@@ -2077,7 +2077,7 @@ export default function WebApp() {
     const shopOrders = ordersHistory.filter(o => 
       o.shopId === activeShopForOwner.id && 
       o.paymentStatus === 'Paid' && 
-      o.status !== 'Cancelled'
+      o.status === 'Completed'
     );
 
     const totalRev = shopOrders.reduce((sum, o) => sum + (Number(o.grandTotal) || 0), 0);
