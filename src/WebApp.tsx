@@ -1135,6 +1135,10 @@ export default function WebApp() {
   }, []);
 
   const isItemInTimeSlot = (item: FoodItem) => {
+    const parentShop = shops.find(s => s.id === item.shopId);
+    if (!parentShop || !isShopOpen(parentShop)) {
+      return false;
+    }
     if (!item.isAvailable) return false;
     if (!item.availableFrom || !item.availableUntil) return true;
 
