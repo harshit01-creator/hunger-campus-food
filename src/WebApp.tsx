@@ -674,7 +674,7 @@ export default function WebApp() {
         setIsManuallyClosedInput(myShop.isManuallyClosed === true);
       }
     }
-  }, [currentUser, shopkeeperSubTab]);
+  }, [currentUser, shopkeeperSubTab, shops]);
 
 
   // Checkout Payment Verification Simulator Modal State
@@ -3740,7 +3740,7 @@ export default function WebApp() {
                               )}
                             </div>
                             <p className="text-xs font-extrabold text-blue-500">₹{item.price}</p>
-                            <p className="text-[10px] text-slate-400">Slot: {item.availableFrom || '08:00'} - {item.availableUntil || '22:00'}</p>
+                            <p className="text-[10px] text-slate-400">Slot: {formatTime12h(activeShopForOwner.openingTime || '08:00')} - {formatTime12h(activeShopForOwner.closingTime || '22:00')}</p>
                             {item.stockLimit !== null && item.stockLimit !== undefined ? (
                               <p className="text-[10px] text-slate-300 font-medium">
                                 Stock: <span className="font-extrabold text-blue-400">{item.stockRemaining ?? 0}</span> / {item.stockLimit}
