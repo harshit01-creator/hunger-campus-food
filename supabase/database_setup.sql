@@ -220,3 +220,29 @@ BEGIN
   RETURN jsonb_build_object('success', TRUE, 'message', 'Order placed successfully');
 END;
 $$ LANGUAGE plpgsql;
+
+-- ======================================================================
+-- 9. CREATE STORAGE BUCKET FOR CUSTOM PAYMENT QR CODES
+-- ======================================================================
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('qrcodes', 'qrcodes', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Storage policies for the bucket (allow public reads, restrict uploads to authenticated users)
+DROP POLICY IF EXISTS "Public access to QR codes" ON storage.objects;
+CREATE POLICY "Public access to QR codes" ON storage.objects 
+  FOR SELECT USING (bucket_id = 'qrcodes');
+
+DROP POLICY IF EXISTS "Shopkeeper upload custom QR" ON storage.objects;
+CREATE POLICY "Shopkeeper upload custom QR" ON storage.objects 
+  FOR INSERT WITH CHECK (
+    bucket_id = 'qrcodes' AND 
+    (auth.role() = 'authenticated')
+  );
+
+DROP POLICY IF EXISTS "Shopkeeper delete custom QR" ON storage.objects;
+CREATE POLICY "Shopkeeper delete custom QR" ON storage.objects 
+  FOR DELETE USING (
+    bucket_id = 'qrcodes' AND 
+    (auth.role() = 'authenticated')
+  );

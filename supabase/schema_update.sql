@@ -6,7 +6,32 @@ ALTER TABLE food_items ADD COLUMN IF NOT EXISTS stock_remaining INTEGER DEFAULT 
 -- Drop NOT NULL constraints on shops payment settings to support null/cleared configurations
 ALTER TABLE shops ALTER COLUMN "upiId" DROP NOT NULL;
 ALTER TABLE shops ALTER COLUMN "qrImageUrl" DROP NOT NULL;
--- 2. CREATE STORED PROCEDURE FOR ATOMIC ORDER PLACEMENT
+
+-- 2. CREATE SUPABASE STORAGE BUCKET FOR CUSTOM QR CODES
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('qrcodes', 'qrcodes', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Storage policies for the bucket (allow public reads, restrict uploads to authenticated users)
+DROP POLICY IF EXISTS "Public access to QR codes" ON storage.objects;
+CREATE POLICY "Public access to QR codes" ON storage.objects 
+  FOR SELECT USING (bucket_id = 'qrcodes');
+
+DROP POLICY IF EXISTS "Shopkeeper upload custom QR" ON storage.objects;
+CREATE POLICY "Shopkeeper upload custom QR" ON storage.objects 
+  FOR INSERT WITH CHECK (
+    bucket_id = 'qrcodes' AND 
+    (auth.role() = 'authenticated')
+  );
+
+DROP POLICY IF EXISTS "Shopkeeper delete custom QR" ON storage.objects;
+CREATE POLICY "Shopkeeper delete custom QR" ON storage.objects 
+  FOR DELETE USING (
+    bucket_id = 'qrcodes' AND 
+    (auth.role() = 'authenticated')
+  );
+
+-- 3. CREATE STORED PROCEDURE FOR ATOMIC ORDER PLACEMENT
 CREATE OR REPLACE FUNCTION place_order_atomic(
   p_order_id TEXT,
   p_shop_id TEXT,

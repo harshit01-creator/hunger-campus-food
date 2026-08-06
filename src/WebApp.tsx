@@ -1733,31 +1733,25 @@ export default function WebApp() {
 
       // If a new file was chosen, upload it to storage
       if (selectedQrFile) {
-        try {
-          const fileExt = selectedQrFile.name.split('.').pop() || 'png';
-          const fileName = `${currentUser.shopId}-qr-${Date.now()}.${fileExt}`;
-          const filePath = `shop_qrs/${fileName}`;
+        const fileExt = selectedQrFile.name.split('.').pop() || 'png';
+        const fileName = `${currentUser.shopId}-qr-${Date.now()}.${fileExt}`;
+        const filePath = `shop_qrs/${fileName}`;
 
-          const { data, error: uploadError } = await supabase.storage
-            .from('qrcodes')
-            .upload(filePath, selectedQrFile, { upsert: true });
+        const { data, error: uploadError } = await supabase.storage
+          .from('qrcodes')
+          .upload(filePath, selectedQrFile, { upsert: true });
 
-          if (uploadError) {
-            throw uploadError;
-          }
+        if (uploadError) {
+          throw new Error(`Supabase Storage upload failed: ${uploadError.message}. Please verify that the "qrcodes" public storage bucket is created on your Supabase dashboard.`);
+        }
 
-          const { data: publicUrlData } = supabase.storage
-            .from('qrcodes')
-            .getPublicUrl(filePath);
+        const { data: publicUrlData } = supabase.storage
+          .from('qrcodes')
+          .getPublicUrl(filePath);
 
-          if (publicUrlData?.publicUrl) {
-            finalQrUrl = publicUrlData.publicUrl;
-            console.log('[Supabase Storage Upload Success] URL:', finalQrUrl);
-          }
-        } catch (uploadErr: any) {
-          console.warn('[Supabase Storage failed, falling back to base64 save]', uploadErr.message);
-          // If storage fails (e.g. bucket doesn't exist), we keep the base64 preview URL
-          alert('ℹ️ Supabase Storage "qrcodes" bucket was not found. Your QR code image has been successfully saved directly in the database as a fallback!');
+        if (publicUrlData?.publicUrl) {
+          finalQrUrl = publicUrlData.publicUrl;
+          console.log('[Supabase Storage Upload Success] URL:', finalQrUrl);
         }
       }
 
