@@ -273,10 +273,33 @@ export async function fetchShopsFromSupabase(): Promise<ShopAccount[]> {
 }
 
 export async function addOrUpdateShopAccount(shop: ShopAccount): Promise<ShopAccount[]> {
-  const { error } = await supabase.from('shops').upsert([shop], { onConflict: 'id' });
+  // If upiId or qrImageUrl is empty string, we try saving them as null
+  const payload = {
+    ...shop,
+    upiId: shop.upiId === '' ? null : shop.upiId,
+    qrImageUrl: shop.qrImageUrl === '' ? null : shop.qrImageUrl
+  };
+
+  const { error } = await supabase.from('shops').upsert([payload], { onConflict: 'id' });
+  
   if (error) {
-    console.error('[Supabase Insert Shop Error]:', error.message);
-    throw new Error(`Database error: ${error.message}`);
+    // If it fails because of NOT NULL constraint, retry with empty strings
+    if (error.code === '23502' || error.message.includes('not-null')) {
+      console.warn('[Supabase NOT NULL constraint hit] Retrying shop upsert with empty strings...');
+      const fallbackPayload = {
+        ...shop,
+        upiId: shop.upiId || '',
+        qrImageUrl: shop.qrImageUrl || ''
+      };
+      const { error: retryError } = await supabase.from('shops').upsert([fallbackPayload], { onConflict: 'id' });
+      if (retryError) {
+        console.error('[Supabase Insert Shop Retry Error]:', retryError.message);
+        throw new Error(`Database error: ${retryError.message}`);
+      }
+    } else {
+      console.error('[Supabase Insert Shop Error]:', error.message);
+      throw new Error(`Database error: ${error.message}`);
+    }
   }
 
   const currentShops = loadShops();

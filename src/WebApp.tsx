@@ -650,6 +650,8 @@ export default function WebApp() {
   const [ownerUpiInput, setOwnerUpiInput] = useState('');
   const [ownerQrImageUrlInput, setOwnerQrImageUrlInput] = useState('');
   const [checkoutQrDataUrl, setCheckoutQrDataUrl] = useState<string>('');
+  const [selectedQrFile, setSelectedQrFile] = useState<File | null>(null);
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
 
   useEffect(() => {
     if (currentUser && currentUser.role === 'shopkeeper' && currentUser.shopId) {
@@ -966,7 +968,7 @@ export default function WebApp() {
     }
   }, [currentUser, ordersHistory, currentOrder]);
 
-  // Trigger Web Push Notification to specific customer (OneSignal REST integration or local fallback)
+  // Trigger Web Push Notification to specific customer (supports Web Push and FCM token format)
   const dispatchPushNotificationToCustomer = async (orderId: string, customerId: string, shopName: string) => {
     try {
       const { data: userData, error } = await supabase
@@ -980,15 +982,29 @@ export default function WebApp() {
         return;
       }
       
-      const sub = JSON.parse(userData.pushToken);
-      const token = orderId.split('-')[1] || orderId;
-      const messageText = `🍽️ Your order at ${shopName} is ready for pickup! Token #${token}.`;
+      const tokenStr = userData.pushToken.trim();
+      const tokenVal = orderId.split('-')[1] || orderId;
+      const messageText = `🍽️ Your order at ${shopName} is ready for pickup! Token #${tokenVal}.`;
       
-      if (sub && sub.endpoint) {
-        console.log('[Push Notification] Dispatching web push to subscription endpoint:', sub.endpoint);
+      // 1. Try parsing as Web Push PushSubscription JSON
+      let isWebPush = false;
+      let webSub: any = null;
+      try {
+        if (tokenStr.startsWith('{')) {
+          webSub = JSON.parse(tokenStr);
+          if (webSub && webSub.endpoint) {
+            isWebPush = true;
+          }
+        }
+      } catch (parseErr) {
+        // Treat as plain FCM token
+      }
+
+      if (isWebPush && webSub) {
+        console.log('[Push Notification] Dispatching Web Push to subscription endpoint:', webSub.endpoint);
         
-        // OneSignal integration if configured inside token
-        if (sub.oneSignalPlayerId) {
+        // OneSignal integration
+        if (webSub.oneSignalPlayerId) {
           await fetch('https://onesignal.com/api/v1/notifications', {
             method: 'POST',
             headers: {
@@ -996,12 +1012,45 @@ export default function WebApp() {
             },
             body: JSON.stringify({
               app_id: 'ONESIGNAL_APP_ID_GOES_HERE',
-              include_subscription_ids: [sub.oneSignalPlayerId],
+              include_subscription_ids: [webSub.oneSignalPlayerId],
               contents: { en: messageText },
               headings: { en: 'Order Ready! 🍽️' },
               data: { orderId }
             })
           }).catch(err => console.warn('OneSignal API push error:', err));
+        } else {
+          console.log('[Push Notification Info] Web Push subscription is available, but Firebase FCM/OneSignal is not configured.');
+        }
+      } else {
+        // 2. Treat as FCM Registration Token (React Native Mobile Client)
+        console.log('[Push Notification] Found FCM Registration Token for customer:', tokenStr);
+        console.log(`[Push Notification Dispatch] Sending FCM alert: "${messageText}" to token: "${tokenStr}"`);
+        
+        const fcmServerKey = ((import.meta as any).env?.VITE_FCM_SERVER_KEY as string) || '';
+        if (fcmServerKey) {
+          await fetch('https://fcm.googleapis.com/fcm/send', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `key=${fcmServerKey}`
+            },
+            body: JSON.stringify({
+              to: tokenStr,
+              notification: {
+                title: 'Order Ready! 🍽️',
+                body: messageText,
+                sound: 'default'
+              },
+              data: {
+                orderId
+              }
+            })
+          })
+          .then(res => res.json())
+          .then(resData => console.log('[Push Notification FCM Response]:', resData))
+          .catch(err => console.warn('FCM legacy send error:', err));
+        } else {
+          console.log('[Push Notification Warning] FCM credentials not set in VITE_FCM_SERVER_KEY. Skipping push dispatch.');
         }
       }
     } catch (e) {
@@ -1637,6 +1686,20 @@ export default function WebApp() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Check size limit: 2MB
+    if (file.size > 2 * 1024 * 1024) {
+      alert('⚠️ File size exceeds 2MB limit. Please select a smaller image.');
+      return;
+    }
+    // Check type limit: image
+    if (!file.type.startsWith('image/')) {
+      alert('⚠️ Invalid file format. Please select an image file (PNG/JPG).');
+      return;
+    }
+
+    setSelectedQrFile(file);
+
+    // Render local preview using FileReader
     const reader = new FileReader();
     reader.onloadend = () => {
       setOwnerQrImageUrlInput(reader.result as string);
@@ -1649,11 +1712,12 @@ export default function WebApp() {
     if (!currentUser || currentUser.role !== 'shopkeeper' || !currentUser.shopId) return;
 
     const upiClean = ownerUpiInput.trim();
-    if (!upiClean.includes('@')) {
+    if (upiClean !== '' && !upiClean.includes('@')) {
       alert('⚠️ Invalid UPI ID: Must contain "@" symbol (e.g. name@bank).');
       return;
     }
 
+    setIsSavingPayment(true);
     try {
       const myShop = shops.find(s => s.id === currentUser.shopId);
       if (!myShop) {
@@ -1661,18 +1725,113 @@ export default function WebApp() {
         return;
       }
 
+      let finalQrUrl = ownerQrImageUrlInput;
+
+      // If a new file was chosen, upload it to storage
+      if (selectedQrFile) {
+        try {
+          const fileExt = selectedQrFile.name.split('.').pop() || 'png';
+          const fileName = `${currentUser.shopId}-qr-${Date.now()}.${fileExt}`;
+          const filePath = `shop_qrs/${fileName}`;
+
+          const { data, error: uploadError } = await supabase.storage
+            .from('qrcodes')
+            .upload(filePath, selectedQrFile, { upsert: true });
+
+          if (uploadError) {
+            throw uploadError;
+          }
+
+          const { data: publicUrlData } = supabase.storage
+            .from('qrcodes')
+            .getPublicUrl(filePath);
+
+          if (publicUrlData?.publicUrl) {
+            finalQrUrl = publicUrlData.publicUrl;
+            console.log('[Supabase Storage Upload Success] URL:', finalQrUrl);
+          }
+        } catch (uploadErr: any) {
+          console.warn('[Supabase Storage failed, falling back to base64 save]', uploadErr.message);
+          // If storage fails (e.g. bucket doesn't exist), we keep the base64 preview URL
+          alert('ℹ️ Supabase Storage "qrcodes" bucket was not found. Your QR code image has been successfully saved directly in the database as a fallback!');
+        }
+      }
+
       const updatedShopObj: ShopAccount = {
         ...myShop,
         upiId: upiClean,
-        qrImageUrl: ownerQrImageUrlInput || ''
+        qrImageUrl: finalQrUrl || ''
       };
 
-      // Save to Supabase (uses the RLS update policy!)
       const updatedShops = await addOrUpdateShopAccount(updatedShopObj);
       setShops(updatedShops);
+      setSelectedQrFile(null);
       alert('🎉 Success: Shop payment details saved to database!');
     } catch (err: any) {
       alert(`⚠️ Failed to save settings: ${err.message}`);
+    } finally {
+      setIsSavingPayment(false);
+    }
+  };
+
+  const handleClearUpiId = async () => {
+    if (!currentUser || currentUser.role !== 'shopkeeper' || !currentUser.shopId) return;
+
+    if (confirm('Are you sure you want to clear your saved UPI ID? This will hide your shop from customers until a new one is configured.')) {
+      setOwnerUpiInput('');
+      try {
+        const myShop = shops.find(s => s.id === currentUser.shopId);
+        if (myShop) {
+          const updatedShopObj: ShopAccount = {
+            ...myShop,
+            upiId: ''
+          };
+          const updatedShops = await addOrUpdateShopAccount(updatedShopObj);
+          setShops(updatedShops);
+          alert('🎉 UPI ID cleared successfully!');
+        }
+      } catch (err: any) {
+        alert(`⚠️ Failed to update database: ${err.message}`);
+      }
+    }
+  };
+
+  const handleRemoveQrCode = async () => {
+    if (!currentUser || currentUser.role !== 'shopkeeper' || !currentUser.shopId) return;
+
+    if (confirm('Are you sure you want to remove your custom QR code? This will revert to auto-generating QR codes from your UPI ID.')) {
+      // Attempt to delete from Supabase storage if it's a cloud storage link
+      if (ownerQrImageUrlInput && ownerQrImageUrlInput.includes('/storage/')) {
+        try {
+          const marker = '/storage/v1/object/public/qrcodes/';
+          if (ownerQrImageUrlInput.includes(marker)) {
+            const filePath = ownerQrImageUrlInput.split(marker)[1];
+            if (filePath) {
+              await supabase.storage.from('qrcodes').remove([filePath]);
+            }
+          }
+        } catch (e: any) {
+          console.warn('[Supabase Storage delete failed]:', e.message);
+        }
+      }
+
+      setOwnerQrImageUrlInput('');
+      setSelectedQrFile(null);
+
+      try {
+        const myShop = shops.find(s => s.id === currentUser.shopId);
+        if (myShop) {
+          const updatedShopObj: ShopAccount = {
+            ...myShop,
+            qrImageUrl: ''
+          };
+          const updatedShops = await addOrUpdateShopAccount(updatedShopObj);
+          setShops(updatedShops);
+          alert('🎉 Custom QR code removed successfully!');
+        }
+      } catch (err: any) {
+        alert(`⚠️ Failed to update database: ${err.message}`);
+      }
     }
   };
 
@@ -3875,10 +4034,20 @@ export default function WebApp() {
 
                     <form onSubmit={handleSavePaymentSettings} className="space-y-5">
                       <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-400">Your Shop UPI VPA (ID) *</label>
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-slate-400">Your Shop UPI VPA (ID) *</label>
+                          {myShop?.upiId && (
+                            <button
+                              type="button"
+                              onClick={handleClearUpiId}
+                              className="text-[10px] text-red-500 hover:text-red-400 font-extrabold flex items-center gap-1 transition"
+                            >
+                              ✕ Remove UPI ID
+                            </button>
+                          )}
+                        </div>
                         <input 
                           type="text"
-                          required
                           value={ownerUpiInput}
                           onChange={(e) => setOwnerUpiInput(e.target.value.trim())}
                           placeholder="e.g. canteenname@okaxis, canteen@upi"
@@ -3888,7 +4057,7 @@ export default function WebApp() {
                               : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'
                           }`}
                         />
-                        <p className="text-[10px] text-slate-500">Must be a valid UPI handle containing the "@" sign (e.g. merchantname@bankname)</p>
+                        <p className="text-[10px] text-slate-500">Must be a valid UPI handle containing the "@" sign (e.g. merchantname@bankname). Leave empty and save or click remove to clear it.</p>
                       </div>
 
                       <div className="space-y-2">
@@ -3907,8 +4076,8 @@ export default function WebApp() {
                           {ownerQrImageUrlInput && (
                             <button 
                               type="button"
-                              onClick={() => setOwnerQrImageUrlInput('')}
-                              className="text-xs text-red-500 hover:underline flex-shrink-0"
+                              onClick={handleRemoveQrCode}
+                              className="text-xs text-red-500 hover:text-red-400 font-bold hover:underline flex-shrink-0"
                             >
                               Remove Custom QR
                             </button>
@@ -3920,9 +4089,10 @@ export default function WebApp() {
                       <div className="pt-2">
                         <button 
                           type="submit"
-                          className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-blue-600 hover:opacity-95 text-white font-bold px-8 py-3.5 rounded-2xl text-xs transition shadow-lg shadow-emerald-500/20"
+                          disabled={isSavingPayment}
+                          className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-blue-600 hover:opacity-95 disabled:opacity-50 text-white font-bold px-8 py-3.5 rounded-2xl text-xs transition shadow-lg shadow-emerald-500/20"
                         >
-                          Save Payment Settings
+                          {isSavingPayment ? 'Saving settings...' : 'Save Payment Settings'}
                         </button>
                       </div>
                     </form>

@@ -8,8 +8,8 @@ CREATE TABLE IF NOT EXISTS public.shops (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     email TEXT NOT NULL,
-    "upiId" TEXT NOT NULL,
-    "qrImageUrl" TEXT NOT NULL,
+    "upiId" TEXT,
+    "qrImageUrl" TEXT,
     rating NUMERIC DEFAULT 4.8
 );
 

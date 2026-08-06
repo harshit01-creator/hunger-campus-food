@@ -3,6 +3,9 @@ ALTER TABLE food_items ADD COLUMN IF NOT EXISTS is_sold_out BOOLEAN DEFAULT fals
 ALTER TABLE food_items ADD COLUMN IF NOT EXISTS stock_limit INTEGER DEFAULT null;
 ALTER TABLE food_items ADD COLUMN IF NOT EXISTS stock_remaining INTEGER DEFAULT null;
 
+-- Drop NOT NULL constraints on shops payment settings to support null/cleared configurations
+ALTER TABLE shops ALTER COLUMN "upiId" DROP NOT NULL;
+ALTER TABLE shops ALTER COLUMN "qrImageUrl" DROP NOT NULL;
 -- 2. CREATE STORED PROCEDURE FOR ATOMIC ORDER PLACEMENT
 CREATE OR REPLACE FUNCTION place_order_atomic(
   p_order_id TEXT,
