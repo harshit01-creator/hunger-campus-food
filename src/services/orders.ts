@@ -87,6 +87,28 @@ interface CreateOrderInput {
   isOnlineVerified?: boolean;
   transactionId?: string;
   appliedDiscount?: any;
+  customerId?: string;
+  customerName?: string;
+}
+
+async function executeDbInsert(orderDoc: any) {
+  // Try inserting with customerId and customerName first
+  const { data, error } = await supabase.from(ORDERS).insert([orderDoc]).select('*');
+  if (error) {
+    // If it fails due to missing columns in user's remote DB schema
+    if (error.message.includes('customerId') || error.message.includes('customerName') || error.message.includes('column')) {
+      console.warn('[Supabase Insert Schema Mismatch] Column customerId/customerName missing. Retrying insert without customer fields...');
+      const { customerId, customerName, ...stripped } = orderDoc;
+      const { data: retryData, error: retryError } = await supabase.from(ORDERS).insert([stripped]).select('*');
+      if (retryError) {
+        console.error('[Supabase Insert retry failed]:', retryError.message);
+        throw retryError;
+      }
+      return retryData;
+    }
+    throw error;
+  }
+  return data;
 }
 
 export async function createOrder(input: CreateOrderInput): Promise<{
@@ -107,13 +129,32 @@ export async function createOrder(input: CreateOrderInput): Promise<{
   const transactionId = `PENDING-TXN-${orderId}`;
   const paidAt = null;
 
-  try {
-    const itemsPayload = input.items.map(item => ({
-      id: item.id,
-      name: item.name,
-      qty: item.qty
-    }));
+  const itemsPayload = input.items.map(item => ({
+    id: item.id,
+    name: item.name,
+    qty: item.qty
+  }));
 
+  const orderDoc = {
+    orderId,
+    shopId: input.shopId,
+    items: itemsPayload,
+    grandTotal: input.grandTotal,
+    paymentMethod: input.paymentMethod,
+    paymentStatus,
+    transactionId,
+    paidAt,
+    status: 'Pending',
+    foodCollected: false,
+    qrToken,
+    appliedDiscount: input.appliedDiscount || null,
+    customerId: input.customerId || null,
+    customerName: input.customerName || null,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  try {
     // Call stored procedure on Supabase to decrement stock atomically
     const { data, error } = await supabase.rpc('place_order_atomic', {
       p_order_id: orderId,
@@ -126,7 +167,9 @@ export async function createOrder(input: CreateOrderInput): Promise<{
       p_paid_at: paidAt,
       p_qr_token: qrToken,
       p_applied_discount: input.appliedDiscount || null,
-      p_created_at: now
+      p_created_at: now,
+      p_customer_id: input.customerId || null,
+      p_customer_name: input.customerName || null
     });
 
     if (!error && data) {
@@ -137,13 +180,13 @@ export async function createOrder(input: CreateOrderInput): Promise<{
       }
     }
     if (error) {
-      console.warn('[Supabase RPC Error]:', error.message);
+      console.warn('[Supabase RPC Error, falling back to direct insert]:', error.message);
     }
   } catch (err: any) {
-    console.warn('[Supabase RPC Exception]:', err.message);
+    console.warn('[Supabase RPC Exception, falling back to direct insert]:', err.message);
   }
 
-  // LOCAL STORAGE FALLBACK ATOMIC STOCK SIMULATION
+  // DIRECT INSERTION / LOCAL STORAGE FALLBACK ATOMIC STOCK SIMULATION
   const currentMenu = loadMenuItems();
   let insufficient = false;
   let errorMsg = '';
@@ -193,27 +236,13 @@ export async function createOrder(input: CreateOrderInput): Promise<{
 
   // Store order locally in local storage history fallback
   const localOrders = JSON.parse(localStorage.getItem('turo_local_orders') || '[]');
-  const newOrder = {
-    orderId,
-    shopId: input.shopId,
-    items: input.items,
-    grandTotal: input.grandTotal,
-    paymentMethod: input.paymentMethod,
-    paymentStatus,
-    transactionId,
-    paidAt,
-    status: 'Pending',
-    foodCollected: false,
-    qrToken,
-    appliedDiscount: input.appliedDiscount || null,
-    createdAt: now,
-    updatedAt: now
-  };
-  localStorage.setItem('turo_local_orders', JSON.stringify([newOrder, ...localOrders]));
+  localStorage.setItem('turo_local_orders', JSON.stringify([orderDoc, ...localOrders]));
 
-  // Attempt direct insertion to cloud table for tracking without locking
+  // Attempt direct insertion to cloud table for tracking
   try {
-    await supabase.from(ORDERS).insert([newOrder]);
+    await executeDbInsert(orderDoc);
+    
+    // Attempt to update stock in database
     for (const item of input.items) {
       const matched = updatedMenu.find(m => m.id === item.id);
       if (matched) {
@@ -223,8 +252,8 @@ export async function createOrder(input: CreateOrderInput): Promise<{
         }).eq('id', item.id);
       }
     }
-  } catch (err) {
-    console.log('[Supabase client insert failed in local mode fallback]');
+  } catch (err: any) {
+    console.log('[Supabase client direct insert failed]:', err.message);
   }
 
   return { success: true, message: 'Order placed, pending payment', orderId, qrToken, paymentStatus, transactionId, createdAt: now };
@@ -242,6 +271,30 @@ export async function confirmOrderPayment(
     return { success: false, message: 'Refusing to generate receipt: Confirmed payment status is missing!' };
   }
 
+  // Enforce UTR format validation: Must be exactly 12 digits
+  const utrClean = transactionId.trim();
+  if (!/^\d{12}$/.test(utrClean)) {
+    return { success: false, message: 'Invalid Transaction Reference: UPI UTR must be exactly 12 numeric digits.' };
+  }
+
+  // Enforce UTR uniqueness to prevent double-spending/re-using UTRs
+  try {
+    const { data: existingOrders, error: checkError } = await supabase
+      .from(ORDERS)
+      .select('orderId')
+      .eq('transactionId', utrClean);
+      
+    if (!checkError && existingOrders && existingOrders.length > 0) {
+      // Check if the matched order is a different order
+      const duplicate = existingOrders.find(o => o.orderId !== orderId);
+      if (duplicate) {
+        return { success: false, message: `Payment reference rejected: UTR ${utrClean} has already been verified for another order.` };
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to perform unique UTR check, skipping to update:', err);
+  }
+
   const now = Date.now();
   // ONLY HERE: receipt/token is generated once successful payment is verified
   const qrToken = `TURO-QR-${orderId}-${now}`;
@@ -253,7 +306,7 @@ export async function confirmOrderPayment(
         paymentStatus: 'Paid',
         paidAt: now,
         qrToken: qrToken,
-        transactionId: transactionId,
+        transactionId: utrClean,
         updatedAt: now
       })
       .eq('orderId', orderId)
@@ -272,7 +325,7 @@ export async function confirmOrderPayment(
             paymentStatus: 'Paid',
             paidAt: now,
             qrToken,
-            transactionId
+            transactionId: utrClean
           };
         }
         return o;
@@ -296,7 +349,7 @@ export async function confirmOrderPayment(
     matched.paymentStatus = 'Paid';
     matched.paidAt = now;
     matched.qrToken = qrToken;
-    matched.transactionId = transactionId;
+    matched.transactionId = utrClean;
     matched.updatedAt = now;
     localStorage.setItem('turo_local_orders', JSON.stringify(localOrders));
     return { success: true, message: 'Payment confirmed & receipt generated (local fallback)', qrToken, order: matched };

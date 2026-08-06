@@ -15,7 +15,9 @@ CREATE OR REPLACE FUNCTION place_order_atomic(
   p_paid_at BIGINT,
   p_qr_token TEXT,
   p_applied_discount JSONB,
-  p_created_at BIGINT
+  p_created_at BIGINT,
+  p_customer_id TEXT DEFAULT NULL,
+  p_customer_name TEXT DEFAULT NULL
 ) RETURNS JSONB AS $$
 DECLARE
   v_item RECORD;
@@ -69,11 +71,11 @@ BEGIN
   INSERT INTO orders (
     "orderId", "shopId", items, "grandTotal", "paymentMethod", "paymentStatus", 
     "transactionId", "paidAt", status, "foodCollected", "qrToken", 
-    "appliedDiscount", "createdAt", "updatedAt"
+    "appliedDiscount", "createdAt", "updatedAt", "customerId", "customerName"
   ) VALUES (
     p_order_id, p_shop_id, p_items, p_grand_total, p_payment_method, p_payment_status, 
     p_transaction_id, p_paid_at, 'Pending', FALSE, p_qr_token, 
-    p_applied_discount, p_created_at, p_created_at
+    p_applied_discount, p_created_at, p_created_at, p_customer_id, p_customer_name
   );
   
   RETURN jsonb_build_object('success', TRUE, 'message', 'Order placed successfully');

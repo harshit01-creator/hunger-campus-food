@@ -323,7 +323,7 @@ export default function WebApp() {
   // Navigation & Session State
   const SESSION_USER_KEY = 'turo_session_user_v1';
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
-  const [activeTab, setActiveTab] = useState<'home' | 'menu' | 'tracking' | 'owner' | 'admin'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'menu' | 'orders' | 'tracking' | 'owner' | 'admin'>('home');
 
   useEffect(() => {
     try {
@@ -361,6 +361,7 @@ export default function WebApp() {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('Online UPI');
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
   const [isPlacingPendingOrder, setIsPlacingPendingOrder] = useState(false);
+  const [userUtrInput, setUserUtrInput] = useState<string>('');
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString());
 
@@ -1244,7 +1245,9 @@ export default function WebApp() {
         shopId: targetShop.id,
         items: cart.map(i => ({ id: i.id, name: i.name, price: i.discountedPrice, qty: i.qty })),
         grandTotal,
-        paymentMethod: selectedPaymentMethod
+        paymentMethod: selectedPaymentMethod,
+        customerId: currentUser?.id || 'guest-1',
+        customerName: currentUser?.name || 'Student Customer'
       });
 
       if (!apiRes.success) {
@@ -1264,74 +1267,75 @@ export default function WebApp() {
     }
   };
 
-  const handleGatewaySuccess = async () => {
+  const handleSubmitUtrPayment = async (utrString: string) => {
+    const utrClean = utrString.trim();
+    if (!/^\d{12}$/.test(utrClean)) {
+      setGatewayStatus('failed');
+      setGatewayError('Invalid Transaction Reference: UPI UTR must be exactly 12 numeric digits.');
+      return;
+    }
+
     setGatewayStatus('success');
-    
-    // Simulate webhook callback arrival & server-side payment verification (1.5s delay)
-    setTimeout(async () => {
-      if (!pendingOrderId) {
+    setGatewayError(null);
+
+    if (!pendingOrderId) {
+      setGatewayStatus('failed');
+      setGatewayError('No pending order ID found.');
+      return;
+    }
+
+    try {
+      // Call backend confirmOrderPayment API with the clean UTR string
+      const res = await confirmOrderPaymentApi(pendingOrderId, utrClean, true);
+
+      if (res.success && res.qrToken) {
+        const targetShop = currentCheckoutShop;
+        const grandTotal = cartSubtotal + 15;
+
+        const newOrder: Order = {
+          id: pendingOrderId,
+          shopId: targetShop.id,
+          shopName: targetShop.name,
+          customerId: currentUser?.id || 'guest-1',
+          customerName: currentUser?.name || 'Student Customer',
+          items: [...cart],
+          grandTotal,
+          paymentMethod: selectedPaymentMethod,
+          paymentStatus: 'Paid',
+          transactionId: utrClean,
+          paidAt: new Date().toLocaleTimeString(),
+          status: 'Pending',
+          createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          createdAtTimestamp: Date.now(),
+          estimatedMinutes: 12,
+          qrToken: res.qrToken,
+          payeeUpiId: targetShop.upiId,
+          payeeQrUrl: targetShop.qrImageUrl
+        };
+
+        setCurrentOrder(newOrder);
+        setOrdersHistory(prev => [newOrder, ...prev]);
+        setCart([]);
+        setUserUtrInput('');
+        setIsCheckoutOpen(false);
+        setIsCartOpen(false);
+        setIsPayingGateway(false);
+        setPendingOrderId(null);
+        setActiveTab('tracking');
+
+        confetti({
+          particleCount: 120,
+          spread: 80,
+          origin: { y: 0.6 }
+        });
+      } else {
         setGatewayStatus('failed');
-        setGatewayError('No pending order ID found.');
-        return;
+        setGatewayError(res.message || 'Payment reference verification failed.');
       }
-
-      try {
-        const txnId = `UPI-TXN-${Math.floor(1000000000 + Math.random() * 9000000000)}`;
-        const res = await confirmOrderPaymentApi(pendingOrderId, txnId, true);
-
-        if (res.success && res.qrToken) {
-          const targetShop = currentCheckoutShop;
-          const grandTotal = cartSubtotal + 15;
-
-          const newOrder: Order = {
-            id: pendingOrderId,
-            shopId: targetShop.id,
-            shopName: targetShop.name,
-            customerId: currentUser?.id || 'guest-1',
-            customerName: currentUser?.name || 'Student Customer',
-            items: [...cart],
-            grandTotal,
-            paymentMethod: selectedPaymentMethod,
-            paymentStatus: 'Paid',
-            transactionId: txnId,
-            paidAt: new Date().toLocaleTimeString(),
-            status: 'Pending',
-            createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            createdAtTimestamp: Date.now(),
-            estimatedMinutes: 12,
-            qrToken: res.qrToken,
-            payeeUpiId: targetShop.upiId,
-            payeeQrUrl: targetShop.qrImageUrl
-          };
-
-          setCurrentOrder(newOrder);
-          setOrdersHistory(prev => [newOrder, ...prev]);
-          setCart([]);
-          setIsCheckoutOpen(false);
-          setIsCartOpen(false);
-          setIsPayingGateway(false);
-          setPendingOrderId(null);
-          setActiveTab('tracking');
-
-          confetti({
-            particleCount: 120,
-            spread: 70,
-            origin: { y: 0.6 }
-          });
-        } else {
-          setGatewayStatus('failed');
-          setGatewayError(res.message || 'Payment confirmed, but server receipt generation failed.');
-        }
-      } catch (err: any) {
-        setGatewayStatus('failed');
-        setGatewayError(`Server verification failed: ${err.message}`);
-      }
-    }, 1500);
-  };
-
-  const handleGatewayFailure = () => {
-    setGatewayStatus('failed');
-    setGatewayError('❌ Transaction declined by issuing bank. Please check your UPI balance or choose a different app.');
+    } catch (err: any) {
+      setGatewayStatus('failed');
+      setGatewayError(err.message || 'Payment verification failed.');
+    }
   };
 
   const handleGatewayCancel = () => {
@@ -2406,6 +2410,16 @@ export default function WebApp() {
               >
                 {t('fullMenu', currentLang)}
               </button>
+              <button 
+                onClick={() => setActiveTab('orders')}
+                className={`px-3 py-1.5 rounded-lg transition ${
+                  activeTab === 'orders' 
+                    ? 'bg-blue-700 text-white font-semibold' 
+                    : theme === 'dark' ? 'text-slate-400 hover:text-slate-200' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {t('myOrders', currentLang)}
+              </button>
               {currentOrder && (
                 <button 
                   onClick={() => setActiveTab('tracking')}
@@ -2769,6 +2783,159 @@ export default function WebApp() {
             </div>
           </div>
         )}
+
+        {/* CUSTOMER DASHBOARD: MY ORDERS (ACTIVE & HISTORY) */}
+        {currentUser.role === 'customer' && activeTab === 'orders' && (() => {
+          const myOrders = ordersHistory.filter(o => o.customerId === currentUser.id);
+          
+          const activeOrders = myOrders.filter(o => 
+            ['Pending', 'Accepted', 'Ready for Pickup'].includes(o.status) &&
+            o.paymentStatus === 'Paid'
+          );
+          
+          const pastOrders = myOrders.filter(o => 
+            o.status === 'Completed' || o.status === 'Cancelled'
+          );
+
+          return (
+            <div className="space-y-8 animate-fadeIn max-w-4xl mx-auto">
+              <div>
+                <h2 className="text-2xl font-extrabold font-heading">
+                  {currentLang === 'hi' ? 'मेरे आदेश' : currentLang === 'ta' ? 'எனது ஆர்டர்கள்' : 'My Orders'}
+                </h2>
+                <p className="text-xs text-slate-400">
+                  {currentLang === 'hi' ? 'अपने सक्रिय और पिछले आदेशों को यहाँ ट्रैक करें' : currentLang === 'ta' ? 'உங்கள் செயலில் உள்ள மற்றும் கடந்த ஆர்டர்களை இங்கே கண்காணிக்கவும்' : 'Track your active and past canteen orders here'}
+                </p>
+              </div>
+
+              {/* Active Orders Section */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
+                  {currentLang === 'hi' ? 'सक्रिय आदेश' : currentLang === 'ta' ? 'செயலில் உள்ள ஆர்டர்கள்' : 'Active Orders'} ({activeOrders.length})
+                </h3>
+                
+                {activeOrders.length > 0 ? (
+                  <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
+                    {activeOrders.map(order => {
+                      const token = order.qrToken && order.qrToken.startsWith('TURO-QR-')
+                        ? order.id.split('-')[1] || order.id
+                        : 'PENDING';
+                      
+                      return (
+                        <div 
+                          key={order.id}
+                          className={`p-6 rounded-3xl border space-y-4 transition hover:shadow-lg ${
+                            theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-md'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between border-b pb-3 border-slate-200 dark:border-slate-800">
+                            <div>
+                              <h4 className="font-bold text-sm text-blue-500">{order.shopName}</h4>
+                              <p className="text-[10px] text-slate-400">{order.id} • {order.createdAt}</p>
+                            </div>
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                              order.status === 'Ready for Pickup' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30' :
+                              order.status === 'Accepted' ? 'bg-blue-500/10 text-blue-500 border border-blue-500/30' :
+                              'bg-amber-500/10 text-amber-500 border border-amber-500/30 animate-pulse'
+                            }`}>
+                              {order.status}
+                            </span>
+                          </div>
+
+                          {/* Items List */}
+                          <div className="space-y-1.5 text-xs">
+                            {order.items.map((item, idx) => (
+                              <div key={idx} className="flex justify-between text-slate-400 dark:text-slate-300">
+                                <span>{item.name} <span className="font-semibold text-slate-500">x{item.qty}</span></span>
+                                <span>₹{item.discountedPrice * item.qty}</span>
+                              </div>
+                            ))}
+                            <div className="flex justify-between font-bold text-sm pt-2 border-t border-slate-200 dark:border-slate-800/60">
+                              <span>Total Paid</span>
+                              <span className="text-emerald-500">₹{order.grandTotal}</span>
+                            </div>
+                          </div>
+
+                          {/* Pickup Token & Action */}
+                          {order.qrToken && !order.qrToken.startsWith('PENDING-') ? (
+                            <div className="pt-2 flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-900/50 p-4 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Pickup Token</span>
+                              <span className="text-xl font-black text-slate-800 dark:text-slate-100 font-heading font-extrabold">#{token}</span>
+                              <button
+                                onClick={() => {
+                                  setCurrentOrder(order);
+                                  setActiveTab('tracking');
+                                }}
+                                className="mt-3 text-xs text-blue-500 font-semibold hover:underline flex items-center gap-1"
+                              >
+                                View Live QR Code & Details →
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="p-3 text-center text-xs text-amber-500 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                              ⌛ Confirming payment...
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className={`p-8 text-center rounded-2xl border text-slate-400 ${
+                    theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200'
+                  }`}>
+                    No active orders. Add items to your cart and place an order to get started!
+                  </div>
+                )}
+              </div>
+
+              {/* Order History Section */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
+                  {currentLang === 'hi' ? 'पिछले आदेश' : currentLang === 'ta' ? 'கடந்த ஆர்டர்கள்' : 'Order History'} ({pastOrders.length})
+                </h3>
+
+                {pastOrders.length > 0 ? (
+                  <div className="space-y-3">
+                    {pastOrders.map(order => (
+                      <div 
+                        key={order.id}
+                        className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition hover:bg-slate-50/50 dark:hover:bg-slate-900/30 ${
+                          theme === 'dark' ? 'glass-panel border-slate-800/60' : 'bg-white border-slate-200 shadow-sm'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-sm text-slate-700 dark:text-slate-300">{order.shopName}</h4>
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
+                              order.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'
+                            }`}>
+                              {order.status}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-400">
+                            {order.id} • {order.createdAt} • {order.items.map(i => `${i.name} (x${i.qty})`).join(', ')}
+                          </p>
+                        </div>
+
+                        <div className="flex sm:flex-col items-baseline sm:items-end justify-between sm:justify-start gap-1">
+                          <span className="text-[10px] text-slate-400">Paid Amount</span>
+                          <span className="font-extrabold text-sm text-slate-800 dark:text-slate-200">₹{order.grandTotal}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className={`p-8 text-center rounded-2xl border text-slate-400 ${
+                    theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200'
+                  }`}>
+                    No order history found.
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* CUSTOMER DASHBOARD: LIVE ORDER TRACKING & AUTOMATIC 8-SECOND CANCEL BUTTON DISAPPEARANCE */}
         {currentUser.role === 'customer' && activeTab === 'tracking' && currentOrder && (() => {
@@ -4139,81 +4306,107 @@ export default function WebApp() {
           </div>
         </div>
       )}
-      {/* ONLINE PAYMENT GATEWAY WEBHOOK SIMULATOR MODAL */}
-      {isPayingGateway && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-fadeIn">
-          <div className={`w-full max-w-md p-6 rounded-3xl space-y-6 shadow-2xl border text-center max-h-[90vh] overflow-y-auto ${
-            theme === 'dark' ? 'glass-panel border-blue-500/40 text-white' : 'bg-white border-blue-200 text-slate-900 shadow-blue-300/50'
-          }`}>
-            <div className="space-y-2">
-              <Smartphone className="w-12 h-12 mx-auto text-blue-500 animate-pulse" />
-              <h3 className="text-xl font-extrabold font-heading">Secure Online UPI Gateway</h3>
-              <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Processing transaction for ₹{cartSubtotal + 15} to VPA: {currentCheckoutShop.upiId}</p>
-            </div>
 
-            {gatewayStatus === 'waiting' && (
-              <div className="space-y-4 py-4">
-                <div className="flex items-center justify-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '300ms' }} />
-                </div>
-                <p className={`text-xs font-semibold ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>Waiting for server verification of online payment...</p>
-                <div className={`p-3 rounded-xl border text-[11px] leading-relaxed ${
-                  theme === 'dark' 
-                    ? 'bg-slate-900/60 border-slate-800 text-slate-400' 
-                    : 'bg-slate-50 border-slate-200 text-slate-600'
-                }`}>
-                  📱 To complete the payment simulation: Tap **"Simulate Gateway Success"** or cancel to return.
-                </div>
+      {/* ONLINE PAYMENT GATEWAY VERIFICATION MODAL */}
+      {isPayingGateway && (() => {
+        const upiUrl = `upi://pay?pa=${currentCheckoutShop.upiId}&pn=${encodeURIComponent(currentCheckoutShop.name)}&am=${cartSubtotal + 15}&tn=${pendingOrderId}&tr=${pendingOrderId}`;
+        const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(upiUrl)}`;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-fadeIn">
+            <div className={`w-full max-w-md p-6 rounded-3xl space-y-6 shadow-2xl border text-center max-h-[90vh] overflow-y-auto ${
+              theme === 'dark' ? 'glass-panel border-blue-500/40 text-white' : 'bg-white border-blue-200 text-slate-900 shadow-blue-300/50'
+            }`}>
+              <div className="space-y-2">
+                <Smartphone className="w-12 h-12 mx-auto text-blue-500 animate-pulse" />
+                <h3 className="text-xl font-extrabold font-heading">UPI Mobile Checkout</h3>
+                <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+                  Amount: <span className="font-bold text-emerald-500">₹{cartSubtotal + 15}</span> • Order: <span className="font-mono">{pendingOrderId}</span>
+                </p>
               </div>
-            )}
 
-            {gatewayStatus === 'success' && (
-              <div className="space-y-3 py-4 text-emerald-500 animate-scaleIn">
-                <Check className="w-12 h-12 mx-auto bg-emerald-500/20 rounded-full p-2.5 border border-emerald-500/40 animate-ping" />
-                <h4 className="font-bold text-sm">🎉 Confirming payment...</h4>
-                <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Generating secure receipt & collection token from server...</p>
-              </div>
-            )}
-
-            {gatewayStatus === 'failed' && (
-              <div className="space-y-3 py-4 text-red-500">
-                <AlertCircle className="w-12 h-12 mx-auto text-red-500" />
-                <h4 className="font-bold text-sm">Payment Verification Failed</h4>
-                <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>{gatewayError}</p>
-              </div>
-            )}
-
-            <div className="space-y-2 pt-2">
               {gatewayStatus === 'waiting' && (
-                <div className="grid grid-cols-2 gap-2">
-                  <button 
-                    onClick={handleGatewaySuccess}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition"
+                <div className="space-y-5 py-2">
+                  {/* Dynamic QR Code generation for the UPI intent */}
+                  <div className="w-48 h-48 bg-white p-2 rounded-2xl mx-auto shadow-md border border-slate-200 flex items-center justify-center">
+                    <img 
+                      src={qrCodeUrl} 
+                      alt="UPI Payment QR" 
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-400">Scan this QR code with GPay, PhonePe, Paytm, or BHIM to pay</p>
+                  
+                  {/* Deep-link button for mobile devices */}
+                  <a 
+                    href={upiUrl}
+                    className="inline-flex w-full items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-2xl text-xs shadow-md transition-transform active:scale-[0.98]"
                   >
-                    Simulate Success ✅
-                  </button>
-                  <button 
-                    onClick={handleGatewayFailure}
-                    className="bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 rounded-xl text-xs transition"
-                  >
-                    Simulate Failure ❌
-                  </button>
+                    <span>⚡ Pay via UPI App</span>
+                  </a>
+
+                  {/* UTR reference submission block */}
+                  <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                    <div className="text-left space-y-1">
+                      <label className="text-xs font-bold text-slate-400">Enter 12-Digit Transaction UTR / Ref No.</label>
+                      <input 
+                        type="text"
+                        maxLength={12}
+                        value={userUtrInput}
+                        onChange={(e) => setUserUtrInput(e.target.value.replace(/\D/g, ''))}
+                        placeholder="e.g. 620312048596"
+                        className={`w-full px-4 py-3 rounded-2xl border text-sm font-semibold transition ${
+                          theme === 'dark' 
+                            ? 'bg-slate-900 border-slate-800 focus:border-blue-500 text-white' 
+                            : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'
+                        }`}
+                      />
+                    </div>
+
+                    <button 
+                      onClick={() => handleSubmitUtrPayment(userUtrInput)}
+                      disabled={userUtrInput.length !== 12}
+                      className={`w-full font-bold py-3 rounded-2xl text-xs transition ${
+                        userUtrInput.length === 12
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                          : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                      }`}
+                    >
+                      Verify & Place Order
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {gatewayStatus === 'success' && (
+                <div className="space-y-3 py-4 text-emerald-500 animate-scaleIn">
+                  <Check className="w-12 h-12 mx-auto bg-emerald-500/20 rounded-full p-2.5 border border-emerald-500/40 animate-ping" />
+                  <h4 className="font-bold text-sm">🎉 Confirming payment...</h4>
+                  <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>Generating secure receipt & collection token from server...</p>
                 </div>
               )}
 
               {gatewayStatus === 'failed' && (
-                <button 
-                  onClick={() => setGatewayStatus('waiting')}
-                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-xl text-xs transition"
-                >
-                  Retry Simulation 🔄
-                </button>
+                <div className="space-y-4 py-4 text-red-500">
+                  <AlertCircle className="w-12 h-12 mx-auto text-red-500" />
+                  <h4 className="font-bold text-sm">Payment Verification Failed</h4>
+                  <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>{gatewayError}</p>
+                  
+                  <button 
+                    onClick={() => {
+                      setGatewayStatus('waiting');
+                      setGatewayError(null);
+                    }}
+                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-xl text-xs transition mt-2"
+                  >
+                    Retry Verification 🔄
+                  </button>
+                </div>
               )}
 
               <button 
                 onClick={handleGatewayCancel}
+                disabled={gatewayStatus === 'success'}
                 className={`w-full py-2.5 rounded-xl text-xs font-bold transition border ${
                   theme === 'dark' ? 'bg-slate-900 hover:bg-slate-800 text-slate-400 border-slate-800' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
                 }`}
@@ -4222,8 +4415,8 @@ export default function WebApp() {
               </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* QR SCAN FRESH RECEIPT & HANDOVER POPUP MODAL */}
       {scanResult && (
