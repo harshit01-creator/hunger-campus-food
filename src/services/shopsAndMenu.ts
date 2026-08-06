@@ -551,15 +551,17 @@ export function isShopOpen(shop: ShopAccount): boolean {
     result = currentTimeStr >= opening || currentTimeStr <= closing;
   }
 
-  console.log('[isShopOpen Debug]:', {
-    shopId: shop.id,
-    shopName: shop.name,
-    opening: opening,
-    closing: closing,
-    currentTime: currentTimeStr,
-    isManuallyClosed: false,
-    isOpen: result
-  });
+  console.log('RAW opening_time:', (shop as any).opening_time);
+  console.log('RAW closing_time:', (shop as any).closing_time);
+  console.log('typeof opening_time:', typeof (shop as any).opening_time);
+  console.log('RAW openingTime (camelCase):', shop.openingTime);
+  console.log('RAW closingTime (camelCase):', shop.closingTime);
+  console.log('typeof openingTime (camelCase):', typeof shop.openingTime);
+  console.log('current time (local):', new Date().toString());
+  console.log('current time (ISO/UTC):', new Date().toISOString());
+  console.log('is_manually_closed value:', (shop as any).is_manually_closed);
+  console.log('isManuallyClosed value (camelCase):', shop.isManuallyClosed);
+  console.log('FINAL calculated open/closed result:', result);
   
   return result;
 }
