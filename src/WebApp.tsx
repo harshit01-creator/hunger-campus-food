@@ -653,6 +653,10 @@ export default function WebApp() {
   const [selectedQrFile, setSelectedQrFile] = useState<File | null>(null);
   const [isSavingPayment, setIsSavingPayment] = useState(false);
 
+  const myShop = (currentUser && currentUser.role === 'shopkeeper' && currentUser.shopId)
+    ? shops.find(s => s.id === currentUser.shopId)
+    : undefined;
+
   useEffect(() => {
     if (currentUser && currentUser.role === 'shopkeeper' && currentUser.shopId) {
       const myShop = shops.find(s => s.id === currentUser.shopId);
@@ -3343,33 +3347,25 @@ export default function WebApp() {
           <div className="max-w-5xl mx-auto space-y-8 animate-fadeIn">
             
             {/* Warning Alert Banner */}
-            {(() => {
-              const myShop = shops.find(s => s.id === currentUser.shopId);
-              const isConfigured = myShop && myShop.upiId && myShop.upiId.includes('@');
-              
-              if (!isConfigured) {
-                return (
-                  <div className="p-4 rounded-3xl bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs flex items-center justify-between gap-3 animate-pulse">
-                    <div className="flex items-center gap-3">
-                      <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-                      <div>
-                        <p className="font-extrabold text-sm">Store Payment Details Incomplete!</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          Your shop is hidden from customers. Go to the <strong>Payment Settings</strong> tab below to enter your UPI ID.
-                        </p>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={() => setShopkeeperSubTab('payment')}
-                      className="bg-amber-600 hover:bg-amber-500 text-white font-extrabold px-4 py-2 rounded-xl text-[10px] transition shrink-0"
-                    >
-                      Configure Now →
-                    </button>
+            {(!myShop || !myShop.upiId || !myShop.upiId.includes('@')) && (
+              <div className="p-4 rounded-3xl bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs flex items-center justify-between gap-3 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                  <div>
+                    <p className="font-extrabold text-sm">Store Payment Details Incomplete!</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Your shop is hidden from customers. Go to the <strong>Payment Settings</strong> tab below to enter your UPI ID.
+                    </p>
                   </div>
-                );
-              }
-              return null;
-            })()}
+                </div>
+                <button 
+                  onClick={() => setShopkeeperSubTab('payment')}
+                  className="bg-amber-600 hover:bg-amber-500 text-white font-extrabold px-4 py-2 rounded-xl text-[10px] transition shrink-0"
+                >
+                  Configure Now →
+                </button>
+              </div>
+            )}
 
             {/* Tab Swapper */}
             <div className={`flex p-1.5 rounded-2xl border transition ${
@@ -4006,140 +4002,137 @@ export default function WebApp() {
             )}
 
             {/* TAB 3: PAYMENT SETTINGS */}
-            {shopkeeperSubTab === 'payment' && (() => {
-              const myShop = shops.find(s => s.id === currentUser.shopId);
-              
-              return (
-                <div className="space-y-8 animate-fadeIn">
-                  <div className={`p-6 rounded-3xl border space-y-6 ${
-                    theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
-                  }`}>
-                    <div>
-                      <h3 className="font-extrabold font-heading text-lg flex items-center gap-2">
-                        <QrCode className="w-5 h-5 text-emerald-500" />
-                        <span>Payment Settings</span>
-                      </h3>
-                      <p className="text-xs text-slate-400">Configure your shop's bank UPI ID and custom payment QR code. Safe payments are directly routed to your configured account.</p>
+            {/* TAB 3: PAYMENT SETTINGS */}
+            {shopkeeperSubTab === 'payment' && (
+              <div className="space-y-8 animate-fadeIn">
+                <div className={`p-6 rounded-3xl border space-y-6 ${
+                  theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+                }`}>
+                  <div>
+                    <h3 className="font-extrabold font-heading text-lg flex items-center gap-2">
+                      <QrCode className="w-5 h-5 text-emerald-500" />
+                      <span>Payment Settings</span>
+                    </h3>
+                    <p className="text-xs text-slate-400">Configure your shop's bank UPI ID and custom payment QR code. Safe payments are directly routed to your configured account.</p>
+                  </div>
+
+                  {!myShop?.upiId && (
+                    <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs flex items-center gap-3">
+                      <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                      <div>
+                        <p className="font-bold">Payment Details Missing</p>
+                        <p className="text-[11px] text-slate-400">Your shop is currently hidden from customers. Please enter your UPI ID to activate your canteen store.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleSavePaymentSettings} className="space-y-5">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-400">Your Shop UPI VPA (ID) *</label>
+                        {myShop?.upiId && (
+                          <button
+                            type="button"
+                            onClick={handleClearUpiId}
+                            className="text-[10px] text-red-500 hover:text-red-400 font-extrabold flex items-center gap-1 transition"
+                          >
+                            ✕ Remove UPI ID
+                          </button>
+                        )}
+                      </div>
+                      <input 
+                        type="text"
+                        value={ownerUpiInput}
+                        onChange={(e) => setOwnerUpiInput(e.target.value.trim())}
+                        placeholder="e.g. canteenname@okaxis, canteen@upi"
+                        className={`w-full px-4 py-3 rounded-2xl border text-sm font-semibold transition ${
+                          theme === 'dark' 
+                            ? 'bg-slate-900 border-slate-800 focus:border-blue-500 text-white' 
+                            : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'
+                        }`}
+                      />
+                      <p className="text-[10px] text-slate-500">Must be a valid UPI handle containing the "@" sign (e.g. merchantname@bankname). Leave empty and save or click remove to clear it.</p>
                     </div>
 
-                    {!myShop?.upiId && (
-                      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs flex items-center gap-3">
-                        <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-                        <div>
-                          <p className="font-bold">Payment Details Missing</p>
-                          <p className="text-[11px] text-slate-400">Your shop is currently hidden from customers. Please enter your UPI ID to activate your canteen store.</p>
-                        </div>
-                      </div>
-                    )}
-
-                    <form onSubmit={handleSavePaymentSettings} className="space-y-5">
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-bold text-slate-400">Your Shop UPI VPA (ID) *</label>
-                          {myShop?.upiId && (
-                            <button
-                              type="button"
-                              onClick={handleClearUpiId}
-                              className="text-[10px] text-red-500 hover:text-red-400 font-extrabold flex items-center gap-1 transition"
-                            >
-                              ✕ Remove UPI ID
-                            </button>
-                          )}
-                        </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-400">Custom Payment QR Image (Optional)</label>
+                      <div className="flex flex-col sm:flex-row items-center gap-4">
                         <input 
-                          type="text"
-                          value={ownerUpiInput}
-                          onChange={(e) => setOwnerUpiInput(e.target.value.trim())}
-                          placeholder="e.g. canteenname@okaxis, canteen@upi"
-                          className={`w-full px-4 py-3 rounded-2xl border text-sm font-semibold transition ${
+                          type="file"
+                          accept="image/*"
+                          onChange={handleQrImageUpload}
+                          className={`w-full text-xs text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-extrabold transition ${
                             theme === 'dark' 
-                              ? 'bg-slate-900 border-slate-800 focus:border-blue-500 text-white' 
-                              : 'bg-slate-50 border-slate-200 focus:border-blue-500 text-slate-900'
+                              ? 'file:bg-slate-800 file:text-white hover:file:bg-slate-700' 
+                              : 'file:bg-slate-100 file:text-slate-800 hover:file:bg-slate-200'
                           }`}
                         />
-                        <p className="text-[10px] text-slate-500">Must be a valid UPI handle containing the "@" sign (e.g. merchantname@bankname). Leave empty and save or click remove to clear it.</p>
+                        {ownerQrImageUrlInput && (
+                          <button 
+                            type="button"
+                            onClick={handleRemoveQrCode}
+                            className="text-xs text-red-500 hover:text-red-400 font-bold hover:underline flex-shrink-0"
+                          >
+                            Remove Custom QR
+                          </button>
+                        )}
                       </div>
-
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-400">Custom Payment QR Image (Optional)</label>
-                        <div className="flex flex-col sm:flex-row items-center gap-4">
-                          <input 
-                            type="file"
-                            accept="image/*"
-                            onChange={handleQrImageUpload}
-                            className={`w-full text-xs text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-extrabold transition ${
-                              theme === 'dark' 
-                                ? 'file:bg-slate-800 file:text-white hover:file:bg-slate-700' 
-                                : 'file:bg-slate-100 file:text-slate-800 hover:file:bg-slate-200'
-                            }`}
-                          />
-                          {ownerQrImageUrlInput && (
-                            <button 
-                              type="button"
-                              onClick={handleRemoveQrCode}
-                              className="text-xs text-red-500 hover:text-red-400 font-bold hover:underline flex-shrink-0"
-                            >
-                              Remove Custom QR
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-slate-500">Upload your official GPay/PhonePe/Paytm QR image if you want to override the default system QR generator</p>
-                      </div>
-
-                      <div className="pt-2">
-                        <button 
-                          type="submit"
-                          disabled={isSavingPayment}
-                          className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-blue-600 hover:opacity-95 disabled:opacity-50 text-white font-bold px-8 py-3.5 rounded-2xl text-xs transition shadow-lg shadow-emerald-500/20"
-                        >
-                          {isSavingPayment ? 'Saving settings...' : 'Save Payment Settings'}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-
-                  {/* QR Preview Panel */}
-                  <div className={`p-6 rounded-3xl border space-y-4 text-center ${
-                    theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
-                  }`}>
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Payment QR Preview</h4>
-                    <div className="w-48 h-48 bg-white p-2.5 rounded-2xl mx-auto shadow-md border border-slate-200 flex items-center justify-center">
-                      {ownerQrImageUrlInput ? (
-                        <img 
-                          src={ownerQrImageUrlInput} 
-                          alt="Custom UPI QR" 
-                          className="w-full h-full object-contain"
-                        />
-                      ) : ownerUpiInput && ownerUpiInput.includes('@') ? (
-                        (() => {
-                          const previewUrl = `upi://pay?pa=${ownerUpiInput}&pn=${encodeURIComponent(myShop?.name || 'Canteen')}&am=0&tn=Preview&cu=INR`;
-                          const qrPreviewCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(previewUrl)}`;
-                          
-                          return (
-                            <img 
-                              src={qrPreviewCodeUrl} 
-                              alt="Generated UPI QR Preview" 
-                              className="w-full h-full object-contain"
-                            />
-                          );
-                        })()
-                      ) : (
-                        <span className="text-slate-400 text-xs">Awaiting valid UPI ID...</span>
-                      )}
+                      <p className="text-[10px] text-slate-500">Upload your official GPay/PhonePe/Paytm QR image if you want to override the default system QR generator</p>
                     </div>
-                    <p className="text-[11px] text-slate-400">
-                      {ownerQrImageUrlInput ? (
-                        <span className="text-emerald-400 font-bold">Using Custom Uploaded QR Code Image</span>
-                      ) : ownerUpiInput && ownerUpiInput.includes('@') ? (
-                        <span>Auto-generating QR Code from UPI ID <span className="font-mono text-blue-400">{ownerUpiInput}</span></span>
-                      ) : (
-                        <span>Configure details to preview checkout QR code</span>
-                      )}
-                    </p>
-                  </div>
+
+                    <div className="pt-2">
+                      <button 
+                        type="submit"
+                        disabled={isSavingPayment}
+                        className="w-full sm:w-auto bg-gradient-to-r from-emerald-600 to-blue-600 hover:opacity-95 disabled:opacity-50 text-white font-bold px-8 py-3.5 rounded-2xl text-xs transition shadow-lg shadow-emerald-500/20"
+                      >
+                        {isSavingPayment ? 'Saving settings...' : 'Save Payment Settings'}
+                      </button>
+                    </div>
+                  </form>
                 </div>
-              );
-            })()}
+
+                {/* QR Preview Panel */}
+                <div className={`p-6 rounded-3xl border space-y-4 text-center ${
+                  theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+                }`}>
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Payment QR Preview</h4>
+                  <div className="w-48 h-48 bg-white p-2.5 rounded-2xl mx-auto shadow-md border border-slate-200 flex items-center justify-center">
+                    {ownerQrImageUrlInput ? (
+                      <img 
+                        src={ownerQrImageUrlInput} 
+                        alt="Custom UPI QR" 
+                        className="w-full h-full object-contain"
+                      />
+                    ) : ownerUpiInput && ownerUpiInput.includes('@') ? (
+                      (() => {
+                        const previewUrl = `upi://pay?pa=${ownerUpiInput}&pn=${encodeURIComponent(myShop?.name || 'Canteen')}&am=0&tn=Preview&cu=INR`;
+                        const qrPreviewCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(previewUrl)}`;
+                        
+                        return (
+                          <img 
+                            src={qrPreviewCodeUrl} 
+                            alt="Generated UPI QR Preview" 
+                            className="w-full h-full object-contain"
+                          />
+                        );
+                      })()
+                    ) : (
+                      <span className="text-slate-400 text-xs">Awaiting valid UPI ID...</span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    {ownerQrImageUrlInput ? (
+                      <span className="text-emerald-400 font-bold">Using Custom Uploaded QR Code Image</span>
+                    ) : ownerUpiInput && ownerUpiInput.includes('@') ? (
+                      <span>Auto-generating QR Code from UPI ID <span className="font-mono text-blue-400">{ownerUpiInput}</span></span>
+                    ) : (
+                      <span>Configure details to preview checkout QR code</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            )}
 
           </div>
         )}
