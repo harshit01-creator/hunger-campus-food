@@ -10,7 +10,10 @@ CREATE TABLE IF NOT EXISTS public.shops (
     email TEXT NOT NULL,
     "upiId" TEXT,
     "qrImageUrl" TEXT,
-    rating NUMERIC DEFAULT 4.8
+    rating NUMERIC DEFAULT 4.8,
+    "openingTime" TEXT DEFAULT '08:00',
+    "closingTime" TEXT DEFAULT '22:00',
+    "isManuallyClosed" BOOLEAN DEFAULT false
 );
 
 -- 2. CREATE FOOD ITEMS TABLE WITH STOCK AVAILABILITY CONTROLS

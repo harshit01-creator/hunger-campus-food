@@ -10,6 +10,9 @@ export interface ShopAccount {
   upiId: string;
   qrImageUrl: string;
   rating: number;
+  openingTime?: string;
+  closingTime?: string;
+  isManuallyClosed?: boolean;
 }
 
 export interface FoodItem {
@@ -59,7 +62,10 @@ export const INITIAL_SHOPS: ShopAccount[] = [
     email: 'canteen@turo.com', 
     upiId: 'turocanteen@okaxis', 
     qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=turocanteen@okaxis&pn=Turo%20Central%20Canteen',
-    rating: 4.8 
+    rating: 4.8,
+    openingTime: '08:00',
+    closingTime: '22:00',
+    isManuallyClosed: false
   },
   { 
     id: 'shop-2', 
@@ -67,7 +73,10 @@ export const INITIAL_SHOPS: ShopAccount[] = [
     email: 'madrastiffins@turo.com', 
     upiId: 'madrastiffins@upi', 
     qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=madrastiffins@upi&pn=Madras%20Tiffins',
-    rating: 4.9 
+    rating: 4.9,
+    openingTime: '08:00',
+    closingTime: '22:00',
+    isManuallyClosed: false
   },
   { 
     id: 'shop-3', 
@@ -75,7 +84,10 @@ export const INITIAL_SHOPS: ShopAccount[] = [
     email: 'sipsnack@turo.com', 
     upiId: 'sipsnack@okicici', 
     qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=sipsnack@okicici&pn=Sip%20Snack',
-    rating: 4.7 
+    rating: 4.7,
+    openingTime: '08:00',
+    closingTime: '22:00',
+    isManuallyClosed: false
   },
   { 
     id: 'shop-4', 
@@ -83,7 +95,10 @@ export const INITIAL_SHOPS: ShopAccount[] = [
     email: 'grill@turo.com', 
     upiId: 'campusgrill@ybl', 
     qrImageUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa=campusgrill@ybl&pn=Campus%20Grill',
-    rating: 4.6 
+    rating: 4.6,
+    openingTime: '08:00',
+    closingTime: '22:00',
+    isManuallyClosed: false
   },
 ];
 
@@ -214,7 +229,14 @@ export function loadShops(): ShopAccount[] {
     const raw = localStorage.getItem(STORAGE_SHOPS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map(s => ({
+          ...s,
+          openingTime: s.openingTime || '08:00',
+          closingTime: s.closingTime || '22:00',
+          isManuallyClosed: s.isManuallyClosed === true || s.isManuallyClosed === 'true' || false
+        }));
+      }
     }
   } catch (e) {
     console.warn('[shopsAndMenu] Error loading shops from storage:', e);
@@ -259,7 +281,17 @@ export async function fetchShopsFromSupabase(): Promise<ShopAccount[]> {
   try {
     const { data, error } = await supabase.from('shops').select('*');
     if (!error && data) {
-      const dbShops = data as ShopAccount[];
+      const dbShops = (data as any[]).map(s => ({
+        id: s.id,
+        name: s.name,
+        email: s.email,
+        upiId: s.upiId || '',
+        qrImageUrl: s.qrImageUrl || '',
+        rating: Number(s.rating) || 4.8,
+        openingTime: s.openingTime || '08:00',
+        closingTime: s.closingTime || '22:00',
+        isManuallyClosed: s.isManuallyClosed === true || s.isManuallyClosed === 'true' || false
+      })) as ShopAccount[];
       saveShops(dbShops);
       return dbShops;
     }
@@ -383,6 +415,48 @@ export async function fetchMenuItemsFromSupabase(): Promise<FoodItem[]> {
 }
 
 export async function addOrUpdateFoodItem(item: FoodItem): Promise<FoodItem[]> {
+  // If the image is a base64 string, upload it to Supabase Storage instead of storing in DB
+  if (item.image && item.image.startsWith('data:image/') && typeof window !== 'undefined') {
+    try {
+      const parts = item.image.split(',');
+      const mimeMatch = parts[0].match(/data:(.*?);/);
+      const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+      const base64Data = parts[1];
+      
+      const byteString = atob(base64Data);
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      const blob = new Blob([ab], { type: mime });
+      
+      const fileExt = mime.split('/')[1] || 'png';
+      const fileName = `food-${item.id}-${Date.now()}.${fileExt}`;
+      const filePath = `food_images/${fileName}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('qrcodes')
+        .upload(filePath, blob, { contentType: mime, upsert: true });
+        
+      if (uploadError) {
+        throw uploadError;
+      }
+      
+      const { data: publicUrlData } = supabase.storage
+        .from('qrcodes')
+        .getPublicUrl(filePath);
+        
+      if (publicUrlData?.publicUrl) {
+        item.image = publicUrlData.publicUrl;
+        console.log('[Supabase Storage] Uploaded base64 food image to:', item.image);
+      }
+    } catch (err: any) {
+      console.error('[Base64 Food Image Upload Failed]:', err);
+      throw new Error(`Failed to upload base64 food image to Supabase Storage: ${err.message}`);
+    }
+  }
+
   const dbPayload = {
     id: item.id,
     name: item.name,
@@ -443,4 +517,31 @@ export async function toggleSpecialStatus(itemId: string): Promise<FoodItem[]> {
 
   const updatedItem = { ...target, isSpecial: !target.isSpecial };
   return addOrUpdateFoodItem(updatedItem);
+}
+
+/** Check if shop is currently open based on operating hours and manual toggle override */
+export function isShopOpen(shop: ShopAccount): boolean {
+  if (shop.isManuallyClosed === true) {
+    return false;
+  }
+  
+  const opening = shop.openingTime || '08:00';
+  const closing = shop.closingTime || '22:00';
+  
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const currentTimeStr = `${hours}:${minutes}`;
+  
+  return currentTimeStr >= opening && currentTimeStr <= closing;
+}
+
+/** Format 24h clock string (HH:MM) to 12h clock string (H:MM AM/PM) */
+export function formatTime12h(timeStr: string): string {
+  if (!timeStr) return '';
+  const [hoursStr, minutesStr] = timeStr.split(':');
+  const hours = parseInt(hoursStr, 10);
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12;
+  return `${displayHours}:${minutesStr} ${ampm}`;
 }

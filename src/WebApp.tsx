@@ -29,7 +29,8 @@ import {
 import {
   ShopAccount, FoodItem, loadShops, saveShops, loadMenuItems, saveMenuItems,
   addOrUpdateShopAccount, deleteShopAccount, addOrUpdateFoodItem, deleteFoodItemById,
-  fetchShopsFromSupabase, fetchMenuItemsFromSupabase, getCategoryDefaultImage, toggleSpecialStatus
+  fetchShopsFromSupabase, fetchMenuItemsFromSupabase, getCategoryDefaultImage, toggleSpecialStatus,
+  isShopOpen, formatTime12h
 } from './services/shopsAndMenu';
 import { LanguageCode, getSavedLanguage, saveLanguage, t } from './services/i18n';
 import {
@@ -653,6 +654,11 @@ export default function WebApp() {
   const [selectedQrFile, setSelectedQrFile] = useState<File | null>(null);
   const [isSavingPayment, setIsSavingPayment] = useState(false);
 
+  // Shop Hours Settings States
+  const [openingTimeInput, setOpeningTimeInput] = useState('08:00');
+  const [closingTimeInput, setClosingTimeInput] = useState('22:00');
+  const [isManuallyClosedInput, setIsManuallyClosedInput] = useState(false);
+
   const myShop = (currentUser && currentUser.role === 'shopkeeper' && currentUser.shopId)
     ? shops.find(s => s.id === currentUser.shopId)
     : undefined;
@@ -663,6 +669,9 @@ export default function WebApp() {
       if (myShop) {
         setOwnerUpiInput(myShop.upiId || '');
         setOwnerQrImageUrlInput(myShop.qrImageUrl || '');
+        setOpeningTimeInput(myShop.openingTime || '08:00');
+        setClosingTimeInput(myShop.closingTime || '22:00');
+        setIsManuallyClosedInput(myShop.isManuallyClosed === true);
       }
     }
   }, [currentUser, shopkeeperSubTab]);
@@ -1142,6 +1151,11 @@ export default function WebApp() {
   };
 
   const addToCart = (item: FoodItem) => {
+    const parentShop = shops.find(s => s.id === item.shopId);
+    if (parentShop && !isShopOpen(parentShop)) {
+      alert(`🏪 ${parentShop.name} is currently Closed. Operating hours: ${formatTime12h(parentShop.openingTime || '08:00')} - ${formatTime12h(parentShop.closingTime || '22:00')}.`);
+      return;
+    }
     if (!isItemInTimeSlot(item)) return;
     const { finalPrice } = getDiscountedPrice(item, discounts);
     setCart(prev => {
@@ -1331,6 +1345,11 @@ export default function WebApp() {
     setIsPlacingPendingOrder(true);
     try {
       const targetShop = currentCheckoutShop;
+      if (!isShopOpen(targetShop)) {
+        alert(`🏪 ${targetShop.name} is currently Closed. Operating hours: ${formatTime12h(targetShop.openingTime || '08:00')} - ${formatTime12h(targetShop.closingTime || '22:00')}.`);
+        return;
+      }
+
       const grandTotal = cartSubtotal + 15;
 
       const apiRes = await createOrderApi({
@@ -1758,7 +1777,10 @@ export default function WebApp() {
       const updatedShopObj: ShopAccount = {
         ...myShop,
         upiId: upiClean,
-        qrImageUrl: finalQrUrl || ''
+        qrImageUrl: finalQrUrl || '',
+        openingTime: openingTimeInput,
+        closingTime: closingTimeInput,
+        isManuallyClosed: isManuallyClosedInput
       };
 
       const updatedShops = await addOrUpdateShopAccount(updatedShopObj);
@@ -2768,41 +2790,69 @@ export default function WebApp() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {shops.filter(shop => shop.upiId && shop.upiId.includes('@')).length > 0 ? (
-                  shops.filter(shop => shop.upiId && shop.upiId.includes('@')).map(shop => (
-                    <div 
-                      key={shop.id}
-                      onClick={() => {
-                        setSelectedShopId(shop.id);
-                        setActiveTab('menu');
-                      }}
-                      className={`p-4 rounded-2xl cursor-pointer group space-y-3 border transition ${
-                        theme === 'dark' ? 'glass-card border-slate-800 hover:border-blue-500' : 'bg-white border-slate-200 hover:border-blue-500 shadow-md'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-500 font-bold group-hover:bg-blue-700 group-hover:text-white transition">
-                          <Store className="w-5 h-5" />
+                  shops.filter(shop => shop.upiId && shop.upiId.includes('@')).map(shop => {
+                    const open = isShopOpen(shop);
+                    return (
+                      <div 
+                        key={shop.id}
+                        onClick={() => {
+                          setSelectedShopId(shop.id);
+                          setActiveTab('menu');
+                        }}
+                        className={`p-4 rounded-2xl cursor-pointer group space-y-3 border transition-all duration-300 ${
+                          open 
+                            ? (theme === 'dark' ? 'glass-card border-slate-800 hover:border-blue-500' : 'bg-white border-slate-200 hover:border-blue-500 shadow-md')
+                            : (theme === 'dark' ? 'bg-slate-900/60 border-slate-950 opacity-70 hover:opacity-100 hover:border-red-500/40' : 'bg-slate-100/60 border-slate-200 opacity-70 hover:opacity-100 hover:border-red-500/40 shadow-sm')
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold transition-all duration-300 ${
+                            open 
+                              ? 'bg-blue-500/10 border border-blue-500/20 text-blue-500 group-hover:bg-blue-700 group-hover:text-white'
+                              : 'bg-slate-500/10 border border-slate-500/20 text-slate-500'
+                          }`}>
+                            <Store className="w-5 h-5" />
+                          </div>
+                          {open ? (
+                            <span className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-[11px] font-bold px-2 py-0.5 rounded-md">
+                              ★ {shop.rating}
+                            </span>
+                          ) : (
+                            <span className="bg-red-500/10 border border-red-500/30 text-red-500 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md uppercase tracking-wider">
+                              Closed
+                            </span>
+                          )}
                         </div>
-                        <span className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-[11px] font-bold px-2 py-0.5 rounded-md">
-                          ★ {shop.rating}
-                        </span>
-                      </div>
 
-                      <div>
-                        <h3 className="font-bold text-sm group-hover:text-blue-500 transition">{shop.name}</h3>
-                        <p className="text-[11px] text-slate-400 font-mono mt-1">UPI: {shop.upiId}</p>
-                      </div>
+                        <div>
+                          <h3 className={`font-bold text-sm transition-all duration-300 ${
+                            open ? 'group-hover:text-blue-500' : 'text-slate-400'
+                          }`}>{shop.name}</h3>
+                          <p className="text-[11px] text-slate-400 font-mono mt-1">UPI: {shop.upiId}</p>
+                        </div>
 
-                      <div className={`pt-2 border-t flex items-center justify-between text-[11px] ${
-                        theme === 'dark' ? 'border-slate-800/80 text-slate-400' : 'border-slate-200 text-slate-600'
-                      }`}>
-                        <span>{t('timeSlotAvailabilityBadge', currentLang)}</span>
-                        <span className="text-emerald-500 font-semibold group-hover:translate-x-1 transition flex items-center">
-                          {t('menuArrow', currentLang)}
-                        </span>
+                        <div className={`pt-2 border-t flex items-center justify-between text-[11px] ${
+                          theme === 'dark' ? 'border-slate-800/80 text-slate-400' : 'border-slate-200 text-slate-600'
+                        }`}>
+                          {open ? (
+                            <>
+                              <span>{t('timeSlotAvailabilityBadge', currentLang)}</span>
+                              <span className="text-emerald-500 font-semibold group-hover:translate-x-1 transition flex items-center">
+                                {t('menuArrow', currentLang)}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-red-500 font-bold">Opens at {formatTime12h(shop.openingTime || '08:00')}</span>
+                              <span className="text-slate-500 transition flex items-center">
+                                {t('menuArrow', currentLang)}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className={`col-span-full p-8 text-center rounded-2xl border text-xs text-slate-500 ${
                     theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
@@ -2940,6 +2990,24 @@ export default function WebApp() {
                 </select>
               </div>
             </div>
+
+            {selectedShopId !== 'all' && (() => {
+              const currentShop = shops.find(s => s.id === selectedShopId);
+              if (currentShop && !isShopOpen(currentShop)) {
+                return (
+                  <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-500 text-xs flex items-center gap-3">
+                    <AlertTriangle className="w-5 h-5 flex-shrink-0 animate-bounce" />
+                    <div>
+                      <p className="font-extrabold text-sm">Store Closed</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        🏪 <strong>{currentShop.name}</strong> is currently Closed. Operating hours: <strong>{formatTime12h(currentShop.openingTime || '08:00')} - {formatTime12h(currentShop.closingTime || '22:00')}</strong>. You can browse the menu but checkout is disabled.
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredMenu.map(item => {
@@ -4072,6 +4140,63 @@ export default function WebApp() {
                         )}
                       </div>
                       <p className="text-[10px] text-slate-500">Upload your official GPay/PhonePe/Paytm QR image if you want to override the default system QR generator</p>
+                    </div>
+
+                    {/* Shop Operating Hours Section */}
+                    <div className="border-t border-slate-800/30 pt-5 space-y-4">
+                      <div>
+                        <h4 className="font-extrabold text-sm text-slate-300">Shop Operating Hours</h4>
+                        <p className="text-[10px] text-slate-500">Configure daily opening and closing hours, or manually lock your shop.</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-400">Opening Time</label>
+                          <input 
+                            type="time"
+                            value={openingTimeInput}
+                            onChange={(e) => setOpeningTimeInput(e.target.value)}
+                            className={`w-full px-3 py-2.5 rounded-xl border text-xs font-semibold focus:outline-none transition ${
+                              theme === 'dark' 
+                                ? 'bg-slate-900 border-slate-800 text-white focus:border-blue-500' 
+                                : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
+                            }`}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-400">Closing Time</label>
+                          <input 
+                            type="time"
+                            value={closingTimeInput}
+                            onChange={(e) => setClosingTimeInput(e.target.value)}
+                            className={`w-full px-3 py-2.5 rounded-xl border text-xs font-semibold focus:outline-none transition ${
+                              theme === 'dark' 
+                                ? 'bg-slate-900 border-slate-800 text-white focus:border-blue-500' 
+                                : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
+                            }`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between p-3.5 rounded-2xl bg-red-500/5 border border-red-500/10">
+                        <div className="pr-4">
+                          <p className="text-xs font-bold text-red-500">Manual Force Close Override</p>
+                          <p className="text-[10px] text-slate-500">Enable this to mark the shop as closed immediately (e.g. out of stock or unplanned leave), regardless of operating hours.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsManuallyClosedInput(!isManuallyClosedInput)}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            isManuallyClosedInput ? 'bg-red-600' : 'bg-slate-800'
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              isManuallyClosedInput ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="pt-2">

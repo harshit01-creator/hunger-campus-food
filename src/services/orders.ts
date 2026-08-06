@@ -120,6 +120,37 @@ export async function createOrder(input: CreateOrderInput): Promise<{
   transactionId?: string;
   createdAt?: number;
 }> {
+  // 1. Fetch shop operating hours details to enforce check server-side
+  try {
+    const { data: shopData, error: shopError } = await supabase
+      .from('shops')
+      .select('*')
+      .eq('id', input.shopId)
+      .single();
+
+    if (!shopError && shopData) {
+      const shopObj = shopData as any;
+      const isManuallyClosed = shopObj.isManuallyClosed === true || shopObj.isManuallyClosed === 'true';
+      if (isManuallyClosed) {
+        return { success: false, message: `Ordering is disabled: ${shopObj.name || 'This shop'} has been manually closed by the shopkeeper.` };
+      }
+
+      const opening = shopObj.openingTime || '08:00';
+      const closing = shopObj.closingTime || '22:00';
+      
+      const date = new Date();
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      const currentTimeStr = `${hours}:${minutes}`;
+
+      if (currentTimeStr < opening || currentTimeStr > closing) {
+        return { success: false, message: `Ordering is disabled: ${shopObj.name || 'This shop'} is closed. Daily hours: ${opening} to ${closing}.` };
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Supabase Shop Operating Hours Check Error]:', err.message);
+  }
+
   const orderId = `TURO-${Math.floor(1000 + Math.random() * 9000)}`;
   // QR/token is NOT created on order submission (set to PENDING- ID to block receipt rendering)
   const qrToken = `PENDING-${orderId}`;

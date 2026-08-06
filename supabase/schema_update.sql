@@ -31,7 +31,12 @@ CREATE POLICY "Shopkeeper delete custom QR" ON storage.objects
     (auth.role() = 'authenticated')
   );
 
--- 3. CREATE STORED PROCEDURE FOR ATOMIC ORDER PLACEMENT
+-- 3. ADD OPERATING HOURS COLUMNS TO SHOPS TABLE
+ALTER TABLE public.shops ADD COLUMN IF NOT EXISTS "openingTime" TEXT DEFAULT '08:00';
+ALTER TABLE public.shops ADD COLUMN IF NOT EXISTS "closingTime" TEXT DEFAULT '22:00';
+ALTER TABLE public.shops ADD COLUMN IF NOT EXISTS "isManuallyClosed" BOOLEAN DEFAULT false;
+
+-- 4. CREATE STORED PROCEDURE FOR ATOMIC ORDER PLACEMENT
 CREATE OR REPLACE FUNCTION place_order_atomic(
   p_order_id TEXT,
   p_shop_id TEXT,
