@@ -665,7 +665,7 @@ export default function WebApp() {
         setOwnerQrImageUrlInput(myShop.qrImageUrl || '');
       }
     }
-  }, [currentUser, shops]);
+  }, [currentUser, shopkeeperSubTab]);
 
 
   // Checkout Payment Verification Simulator Modal State

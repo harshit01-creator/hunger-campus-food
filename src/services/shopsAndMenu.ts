@@ -280,7 +280,7 @@ export async function addOrUpdateShopAccount(shop: ShopAccount): Promise<ShopAcc
     qrImageUrl: shop.qrImageUrl === '' ? null : shop.qrImageUrl
   };
 
-  const { error } = await supabase.from('shops').upsert([payload], { onConflict: 'id' });
+  const { data, error } = await supabase.from('shops').upsert([payload], { onConflict: 'id' }).select('*');
   
   if (error) {
     // If it fails because of NOT NULL constraint, retry with empty strings
@@ -291,15 +291,20 @@ export async function addOrUpdateShopAccount(shop: ShopAccount): Promise<ShopAcc
         upiId: shop.upiId || '',
         qrImageUrl: shop.qrImageUrl || ''
       };
-      const { error: retryError } = await supabase.from('shops').upsert([fallbackPayload], { onConflict: 'id' });
+      const { data: retryData, error: retryError } = await supabase.from('shops').upsert([fallbackPayload], { onConflict: 'id' }).select('*');
       if (retryError) {
         console.error('[Supabase Insert Shop Retry Error]:', retryError.message);
         throw new Error(`Database error: ${retryError.message}`);
+      }
+      if (!retryData || retryData.length === 0) {
+        throw new Error('Fallback update returned no rows. This indicates the write was silently blocked by Supabase Row-Level Security (RLS) policies. Please check your privileges.');
       }
     } else {
       console.error('[Supabase Insert Shop Error]:', error.message);
       throw new Error(`Database error: ${error.message}`);
     }
+  } else if (!data || data.length === 0) {
+    throw new Error('Update returned no rows. This indicates the write was silently blocked by Supabase Row-Level Security (RLS) policies. Please check your privileges.');
   }
 
   const currentShops = loadShops();
