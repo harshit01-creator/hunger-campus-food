@@ -90,10 +90,42 @@ DROP POLICY IF EXISTS "Enable read access for all users" ON shops;
 DROP POLICY IF EXISTS "Allow select for all" ON shops;
 DROP POLICY IF EXISTS "Shops read policy" ON shops;
 DROP POLICY IF EXISTS "Shops write policy" ON shops;
+DROP POLICY IF EXISTS "Enable insert for super admins only" ON shops;
+DROP POLICY IF EXISTS "Enable update for super admins or owners" ON shops;
+DROP POLICY IF EXISTS "Enable delete for super admins only" ON shops;
+
 CREATE POLICY "Enable read access for all users" ON shops FOR SELECT USING (true);
-CREATE POLICY "Enable insert for super admins only" ON shops FOR INSERT WITH CHECK (true);
-CREATE POLICY "Enable update for super admins or owners" ON shops FOR UPDATE USING (true);
-CREATE POLICY "Enable delete for super admins only" ON shops FOR DELETE USING (true);
+
+CREATE POLICY "Enable insert for super admins only" ON shops
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.user_accounts
+      WHERE email = auth.jwt() ->> 'email' AND role = 'super_admin'
+    )
+  );
+
+CREATE POLICY "Enable update for super admins or owners" ON shops
+  FOR UPDATE
+  TO authenticated
+  USING (
+    (auth.jwt() ->> 'email' = email) OR 
+    (EXISTS (
+      SELECT 1 FROM public.user_accounts 
+      WHERE email = auth.jwt() ->> 'email' AND role = 'super_admin'
+    ))
+  );
+
+CREATE POLICY "Enable delete for super admins only" ON shops
+  FOR DELETE
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.user_accounts 
+      WHERE email = auth.jwt() ->> 'email' AND role = 'super_admin'
+    )
+  );
 
 -- Disable and recreate policies for Food Items table
 ALTER TABLE food_items ENABLE ROW LEVEL SECURITY;

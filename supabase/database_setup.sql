@@ -84,8 +84,43 @@ ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 
 -- Shops Read/Write Policies
 DROP POLICY IF EXISTS "Enable read access for all users" ON public.shops;
+DROP POLICY IF EXISTS "Enable write access for super admins" ON public.shops;
+DROP POLICY IF EXISTS "Enable insert for super admins only" ON public.shops;
+DROP POLICY IF EXISTS "Enable update for super admins or owners" ON public.shops;
+DROP POLICY IF EXISTS "Enable delete for super admins only" ON public.shops;
+
 CREATE POLICY "Enable read access for all users" ON public.shops FOR SELECT USING (true);
-CREATE POLICY "Enable write access for super admins" ON public.shops FOR ALL USING (true);
+
+CREATE POLICY "Enable insert for super admins only" ON public.shops
+  FOR INSERT
+  TO authenticated
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.user_accounts
+      WHERE email = auth.jwt() ->> 'email' AND role = 'super_admin'
+    )
+  );
+
+CREATE POLICY "Enable update for super admins or owners" ON public.shops
+  FOR UPDATE
+  TO authenticated
+  USING (
+    (auth.jwt() ->> 'email' = email) OR 
+    (EXISTS (
+      SELECT 1 FROM public.user_accounts 
+      WHERE email = auth.jwt() ->> 'email' AND role = 'super_admin'
+    ))
+  );
+
+CREATE POLICY "Enable delete for super admins only" ON public.shops
+  FOR DELETE
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.user_accounts 
+      WHERE email = auth.jwt() ->> 'email' AND role = 'super_admin'
+    )
+  );
 
 -- Food Items Read/Write Policies
 DROP POLICY IF EXISTS "Enable read access for all users" ON public.food_items;
