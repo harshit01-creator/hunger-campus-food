@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   ShoppingBag, Search, Clock, MapPin, CheckCircle2, ChevronRight, 
   Sparkles, QrCode, ArrowLeft, Plus, Minus, CreditCard, Smartphone,
@@ -397,6 +397,34 @@ export default function WebApp() {
     isActive: true
   });
 
+  const handleSync = useCallback(async () => {
+    const dbShops = await fetchShopsFromSupabase();
+    const dbMenu = await fetchMenuItemsFromSupabase();
+    const dbDisc = await fetchDiscountsFromSupabase();
+    setShops(dbShops);
+    setMenuItems(dbMenu);
+    setDiscounts(dbDisc);
+
+    try {
+      const { data: dbOrders } = await supabase
+        .from('orders')
+        .select('*')
+        .order('createdAt', { ascending: false });
+      if (dbOrders) {
+        const mapped = dbOrders.map(o => mapDbOrderToFrontend(o, dbShops, dbMenu));
+        setOrdersHistory(mapped);
+      }
+    } catch (err) {
+      console.warn('[Sync Orders Error]:', err);
+    }
+    setLastSyncTime(new Date().toLocaleTimeString());
+  }, []);
+
+  // Synchronize database records on navigation tab changes
+  useEffect(() => {
+    handleSync();
+  }, [activeTab, selectedShopId, handleSync]);
+
   // Real-Time Event Listener & Cloud Database Hydration
   useEffect(() => {
     const initLoad = async () => {
@@ -423,28 +451,7 @@ export default function WebApp() {
 
     initLoad();
 
-    const handleSync = async () => {
-      const dbShops = await fetchShopsFromSupabase();
-      const dbMenu = await fetchMenuItemsFromSupabase();
-      const dbDisc = await fetchDiscountsFromSupabase();
-      setShops(dbShops);
-      setMenuItems(dbMenu);
-      setDiscounts(dbDisc);
 
-      try {
-        const { data: dbOrders } = await supabase
-          .from('orders')
-          .select('*')
-          .order('createdAt', { ascending: false });
-        if (dbOrders) {
-          const mapped = dbOrders.map(o => mapDbOrderToFrontend(o, dbShops, dbMenu));
-          setOrdersHistory(mapped);
-        }
-      } catch (err) {
-        console.warn('[Sync Orders Error]:', err);
-      }
-      setLastSyncTime(new Date().toLocaleTimeString());
-    };
 
     window.addEventListener('storage', handleSync);
     window.addEventListener('turo_shops_updated', handleSync);

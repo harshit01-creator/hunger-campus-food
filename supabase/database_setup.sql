@@ -249,3 +249,10 @@ CREATE POLICY "Shopkeeper delete custom QR" ON storage.objects
     bucket_id = 'qrcodes' AND 
     (auth.role() = 'authenticated')
   );
+
+-- ======================================================================
+-- 10. ENABLE SUPABASE REALTIME FOR PUBLIC SCHEMA TABLES
+-- ======================================================================
+alter publication supabase_realtime add table public.shops;
+alter publication supabase_realtime add table public.food_items;
+alter publication supabase_realtime add table public.orders;

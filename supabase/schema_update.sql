@@ -181,3 +181,8 @@ CREATE POLICY "Enable insert for all users" ON orders FOR INSERT WITH CHECK (tru
 CREATE POLICY "Enable update for all users" ON orders FOR UPDATE USING (true);
 CREATE POLICY "Enable delete for all users" ON orders FOR DELETE USING (true);
 
+-- 5. ENABLE SUPABASE REALTIME FOR PUBLIC SCHEMA TABLES
+alter publication supabase_realtime add table public.shops;
+alter publication supabase_realtime add table public.food_items;
+alter publication supabase_realtime add table public.orders;
+
