@@ -2876,6 +2876,7 @@ export default function WebApp() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredMenu.slice(0, 6).map(item => {
+                  const parentShop = shops.find(s => s.id === item.shopId);
                   const availableNow = isItemInTimeSlot(item);
                   const { finalPrice, discountAmount, appliedOffer } = getDiscountedPrice(item, discounts);
                   const hasDiscount = discountAmount > 0;
@@ -2914,7 +2915,7 @@ export default function WebApp() {
                               isSoldOut ? 'bg-red-950/80 border-red-500/40 text-red-400 font-extrabold' :
                               availableNow ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-400' : 'bg-red-950/80 border-red-500/40 text-red-400'
                             }`}>
-                              {isSoldOut ? `🔴 ${t('soldOutLabel', currentLang).toUpperCase()}` : availableNow ? `${t('activeText', currentLang)} (${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'})` : t('slotClosed', currentLang)}
+                              {isSoldOut ? `🔴 ${t('soldOutLabel', currentLang).toUpperCase()}` : availableNow ? `${t('activeText', currentLang)} (${formatTime12h(parentShop?.openingTime || '08:00')} - ${formatTime12h(parentShop?.closingTime || '22:00')})` : t('slotClosed', currentLang)}
                             </span>
                           </div>
                         </div>
@@ -3015,6 +3016,7 @@ export default function WebApp() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredMenu.map(item => {
+                const parentShop = shops.find(s => s.id === item.shopId);
                 const inCart = cart.find(i => i.id === item.id);
                 const availableNow = isItemInTimeSlot(item);
                 const { finalPrice, discountAmount } = getDiscountedPrice(item, discounts);
@@ -3070,7 +3072,7 @@ export default function WebApp() {
                           ? (theme === 'dark' ? 'bg-emerald-950/80 text-emerald-400 border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border-emerald-200') 
                           : (theme === 'dark' ? 'bg-red-950/80 text-red-400 border-red-500/30' : 'bg-red-50 text-red-700 border-red-200')
                       }`}>
-                        {isSoldOut ? t('soldOutLabel', currentLang) : availableNow ? `${t('slotPrefix', currentLang)} ${item.availableFrom || '08:00'} - ${item.availableUntil || '22:00'}` : t('slotClosed', currentLang)}
+                        {isSoldOut ? t('soldOutLabel', currentLang) : availableNow ? `${t('slotPrefix', currentLang)} ${formatTime12h(parentShop?.openingTime || '08:00')} - ${formatTime12h(parentShop?.closingTime || '22:00')}` : t('slotClosed', currentLang)}
                       </span>
 
                       {isSoldOut ? (
