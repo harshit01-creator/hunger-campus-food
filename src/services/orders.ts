@@ -143,7 +143,16 @@ export async function createOrder(input: CreateOrderInput): Promise<{
       const minutes = String(date.getMinutes()).padStart(2, '0');
       const currentTimeStr = `${hours}:${minutes}`;
 
-      if (currentTimeStr < opening || currentTimeStr > closing) {
+      let isOpen = false;
+      if (opening === closing) {
+        isOpen = true;
+      } else if (opening < closing) {
+        isOpen = currentTimeStr >= opening && currentTimeStr <= closing;
+      } else {
+        isOpen = currentTimeStr >= opening || currentTimeStr <= closing;
+      }
+
+      if (!isOpen) {
         return { success: false, message: `Ordering is disabled: ${shopObj.name || 'This shop'} is closed. Daily hours: ${opening} to ${closing}.` };
       }
     }

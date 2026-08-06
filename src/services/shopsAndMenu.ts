@@ -522,6 +522,15 @@ export async function toggleSpecialStatus(itemId: string): Promise<FoodItem[]> {
 /** Check if shop is currently open based on operating hours and manual toggle override */
 export function isShopOpen(shop: ShopAccount): boolean {
   if (shop.isManuallyClosed === true) {
+    console.log('[isShopOpen Debug]:', {
+      shopId: shop.id,
+      shopName: shop.name,
+      opening: shop.openingTime || '08:00',
+      closing: shop.closingTime || '22:00',
+      currentTime: null,
+      isManuallyClosed: true,
+      isOpen: false
+    });
     return false;
   }
   
@@ -533,7 +542,26 @@ export function isShopOpen(shop: ShopAccount): boolean {
   const minutes = String(now.getMinutes()).padStart(2, '0');
   const currentTimeStr = `${hours}:${minutes}`;
   
-  return currentTimeStr >= opening && currentTimeStr <= closing;
+  let result = false;
+  if (opening === closing) {
+    result = true;
+  } else if (opening < closing) {
+    result = currentTimeStr >= opening && currentTimeStr <= closing;
+  } else {
+    result = currentTimeStr >= opening || currentTimeStr <= closing;
+  }
+
+  console.log('[isShopOpen Debug]:', {
+    shopId: shop.id,
+    shopName: shop.name,
+    opening: opening,
+    closing: closing,
+    currentTime: currentTimeStr,
+    isManuallyClosed: false,
+    isOpen: result
+  });
+  
+  return result;
 }
 
 /** Format 24h clock string (HH:MM) to 12h clock string (H:MM AM/PM) */
