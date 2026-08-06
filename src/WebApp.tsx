@@ -1143,22 +1143,36 @@ export default function WebApp() {
 
   const isItemInTimeSlot = (item: FoodItem) => {
     const parentShop = shops.find(s => s.id === item.shopId);
-    if (!parentShop || !isShopOpen(parentShop)) {
-      return false;
+    
+    // Evaluate conditions step-by-step
+    const isShopActive = parentShop ? isShopOpen(parentShop) : false;
+    const isAvailable = !!item.isAvailable;
+    
+    let timeSlotOk = true;
+    if (item.availableFrom && item.availableUntil) {
+      const now = new Date();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      const [fromH, fromM] = item.availableFrom.split(':').map(Number);
+      const [untilH, untilM] = item.availableUntil.split(':').map(Number);
+      const fromTotal = fromH * 60 + (fromM || 0);
+      const untilTotal = untilH * 60 + (untilM || 0);
+      timeSlotOk = currentMinutes >= fromTotal && currentMinutes <= untilTotal;
     }
-    if (!item.isAvailable) return false;
-    if (!item.availableFrom || !item.availableUntil) return true;
+    
+    const result = isShopActive && isAvailable && timeSlotOk;
 
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    console.log('food item shop_id:', (item as any).shop_id);
+    console.log('food item shopId (camelCase):', item.shopId);
+    console.log('food item raw opening_time used:', parentShop ? (parentShop as any).opening_time : undefined);
+    console.log('food item raw openingTime used (camelCase):', parentShop?.openingTime);
+    console.log('food item raw closing_time used:', parentShop ? (parentShop as any).closing_time : undefined);
+    console.log('food item raw closingTime used (camelCase):', parentShop?.closingTime);
+    console.log('any is_available/in_stock flag on item:', (item as any).is_available);
+    console.log('isAvailable flag (camelCase):', item.isAvailable);
+    console.log('current time used for comparison:', new Date().toString());
+    console.log('FINAL food item open/closed result:', result);
 
-    const [fromH, fromM] = item.availableFrom.split(':').map(Number);
-    const [untilH, untilM] = item.availableUntil.split(':').map(Number);
-
-    const fromTotal = fromH * 60 + (fromM || 0);
-    const untilTotal = untilH * 60 + (untilM || 0);
-
-    return currentMinutes >= fromTotal && currentMinutes <= untilTotal;
+    return result;
   };
 
   const addToCart = (item: FoodItem) => {
