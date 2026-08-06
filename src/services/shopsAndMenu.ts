@@ -545,3 +545,26 @@ export function formatTime12h(timeStr: string): string {
   const displayHours = hours % 12 || 12;
   return `${displayHours}:${minutesStr} ${ampm}`;
 }
+
+/** Convert 12h time components to 24h (HH:MM) string format */
+export function convertTo24h(hour: number, minute: string, period: string): string {
+  let h = hour;
+  if (period === 'PM' && h < 12) h += 12;
+  if (period === 'AM' && h === 12) h = 0;
+  const hStr = String(h).padStart(2, '0');
+  return `${hStr}:${minute}`;
+}
+
+/** Parse 24h (HH:MM) string format into 12h components */
+export function parse24h(timeStr: string): { hour: number; minute: string; period: string } {
+  if (!timeStr || !timeStr.includes(':')) {
+    return { hour: 8, minute: '00', period: 'AM' };
+  }
+  const [hStr, mStr] = timeStr.split(':');
+  let h = parseInt(hStr, 10);
+  if (isNaN(h)) h = 8;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const displayHour = h % 12 || 12;
+  const minute = mStr ? mStr.substring(0, 2) : '00';
+  return { hour: displayHour, minute, period };
+}

@@ -30,7 +30,7 @@ import {
   ShopAccount, FoodItem, loadShops, saveShops, loadMenuItems, saveMenuItems,
   addOrUpdateShopAccount, deleteShopAccount, addOrUpdateFoodItem, deleteFoodItemById,
   fetchShopsFromSupabase, fetchMenuItemsFromSupabase, getCategoryDefaultImage, toggleSpecialStatus,
-  isShopOpen, formatTime12h
+  isShopOpen, formatTime12h, parse24h, convertTo24h
 } from './services/shopsAndMenu';
 import { LanguageCode, getSavedLanguage, saveLanguage, t } from './services/i18n';
 import {
@@ -4149,34 +4149,96 @@ export default function WebApp() {
                         <p className="text-[10px] text-slate-500">Configure daily opening and closing hours, or manually lock your shop.</p>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-bold text-slate-400">Opening Time</label>
-                          <input 
-                            type="time"
-                            value={openingTimeInput}
-                            onChange={(e) => setOpeningTimeInput(e.target.value)}
-                            className={`w-full px-3 py-2.5 rounded-xl border text-xs font-semibold focus:outline-none transition ${
-                              theme === 'dark' 
-                                ? 'bg-slate-900 border-slate-800 text-white focus:border-blue-500' 
-                                : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
-                            }`}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-bold text-slate-400">Closing Time</label>
-                          <input 
-                            type="time"
-                            value={closingTimeInput}
-                            onChange={(e) => setClosingTimeInput(e.target.value)}
-                            className={`w-full px-3 py-2.5 rounded-xl border text-xs font-semibold focus:outline-none transition ${
-                              theme === 'dark' 
-                                ? 'bg-slate-900 border-slate-800 text-white focus:border-blue-500' 
-                                : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
-                            }`}
-                          />
-                        </div>
-                      </div>
+                      {(() => {
+                        const openT = parse24h(openingTimeInput);
+                        const closeT = parse24h(closingTimeInput);
+                        const hoursOptions = Array.from({ length: 12 }, (_, i) => i + 1);
+                        const minutesOptions = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
+
+                        const selectStyle = `rounded-xl border text-xs font-semibold px-2.5 py-2 focus:outline-none transition ${
+                          theme === 'dark' 
+                            ? 'bg-slate-900 border-slate-800 text-white focus:border-blue-500' 
+                            : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-blue-500'
+                        }`;
+
+                        return (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* Opening Time split selector */}
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-slate-400">Opening Time</label>
+                              <div className="flex items-center gap-1.5">
+                                <select
+                                  value={openT.hour}
+                                  onChange={(e) => {
+                                    const h = parseInt(e.target.value, 10);
+                                    setOpeningTimeInput(convertTo24h(h, openT.minute, openT.period));
+                                  }}
+                                  className={selectStyle}
+                                >
+                                  {hoursOptions.map(h => <option key={h} value={h}>{h}</option>)}
+                                </select>
+                                <span className="text-slate-500 font-bold">:</span>
+                                <select
+                                  value={openT.minute}
+                                  onChange={(e) => {
+                                    setOpeningTimeInput(convertTo24h(openT.hour, e.target.value, openT.period));
+                                  }}
+                                  className={selectStyle}
+                                >
+                                  {minutesOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                                <select
+                                  value={openT.period}
+                                  onChange={(e) => {
+                                    setOpeningTimeInput(convertTo24h(openT.hour, openT.minute, e.target.value));
+                                  }}
+                                  className={selectStyle}
+                                >
+                                  <option value="AM">AM</option>
+                                  <option value="PM">PM</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            {/* Closing Time split selector */}
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-slate-400">Closing Time</label>
+                              <div className="flex items-center gap-1.5">
+                                <select
+                                  value={closeT.hour}
+                                  onChange={(e) => {
+                                    const h = parseInt(e.target.value, 10);
+                                    setClosingTimeInput(convertTo24h(h, closeT.minute, closeT.period));
+                                  }}
+                                  className={selectStyle}
+                                >
+                                  {hoursOptions.map(h => <option key={h} value={h}>{h}</option>)}
+                                </select>
+                                <span className="text-slate-500 font-bold">:</span>
+                                <select
+                                  value={closeT.minute}
+                                  onChange={(e) => {
+                                    setClosingTimeInput(convertTo24h(closeT.hour, e.target.value, closeT.period));
+                                  }}
+                                  className={selectStyle}
+                                >
+                                  {minutesOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                                <select
+                                  value={closeT.period}
+                                  onChange={(e) => {
+                                    setClosingTimeInput(convertTo24h(closeT.hour, closeT.minute, e.target.value));
+                                  }}
+                                  className={selectStyle}
+                                >
+                                  <option value="AM">AM</option>
+                                  <option value="PM">PM</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       <div className="flex items-center justify-between p-3.5 rounded-2xl bg-red-500/5 border border-red-500/10">
                         <div className="pr-4">
