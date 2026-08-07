@@ -230,22 +230,28 @@ function generateReceiptImage(order: Order): string {
   
   return canvas.toDataURL('image/png');
 }export function mapDbOrderToFrontend(dbOrder: any, shopsList: ShopAccount[], menuItemsList: FoodItem[]): Order {
-  const shop = shopsList.find(s => s.id === dbOrder.shopId);
-  const createdAtTimestamp = Number(dbOrder.createdAt);
+  const shop = shopsList.find(s => s.id === (dbOrder.shopId || dbOrder.shop_id));
+  const createdAtTimestamp = Number(dbOrder.createdAt || dbOrder.created_at);
   
   // Reconstruct date strings
   const dateObj = new Date(createdAtTimestamp);
   const createdAtStr = isNaN(dateObj.getTime()) 
     ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const paidAtStr = dbOrder.paidAt && !isNaN(new Date(Number(dbOrder.paidAt)).getTime())
-    ? new Date(Number(dbOrder.paidAt)).toLocaleTimeString() 
+  
+  const paidAtVal = dbOrder.paidAt || dbOrder.paid_at;
+  const paidAtStr = paidAtVal && !isNaN(new Date(Number(paidAtVal)).getTime())
+    ? new Date(Number(paidAtVal)).toLocaleTimeString() 
     : undefined;
-  const handedOverAtStr = dbOrder.handedOverAt && !isNaN(new Date(Number(dbOrder.handedOverAt)).getTime())
-    ? new Date(Number(dbOrder.handedOverAt)).toLocaleTimeString() 
+  
+  const handedOverAtVal = dbOrder.handedOverAt || dbOrder.handed_over_at;
+  const handedOverAtStr = handedOverAtVal && !isNaN(new Date(Number(handedOverAtVal)).getTime())
+    ? new Date(Number(handedOverAtVal)).toLocaleTimeString() 
     : undefined;
-  const cancelledAtStr = dbOrder.cancelledAt && !isNaN(new Date(Number(dbOrder.cancelledAt)).getTime())
-    ? new Date(Number(dbOrder.cancelledAt)).toLocaleTimeString() 
+    
+  const cancelledAtVal = dbOrder.cancelledAt || dbOrder.cancelled_at;
+  const cancelledAtStr = cancelledAtVal && !isNaN(new Date(Number(cancelledAtVal)).getTime())
+    ? new Date(Number(cancelledAtVal)).toLocaleTimeString() 
     : undefined;
 
   // Reconstruct items with category and prices from current menuItemsList or db record fallback
@@ -261,34 +267,34 @@ function generateReceiptImage(order: Order): string {
       category: matchedMenu ? matchedMenu.category : 'Fast Food',
       image: matchedMenu ? matchedMenu.image : '',
       isVeg: matchedMenu ? matchedMenu.isVeg : true,
-      shopId: dbOrder.shopId,
+      shopId: dbOrder.shopId || dbOrder.shop_id,
       shopName: shop ? shop.name : 'Canteen'
     };
   });
 
   return {
-    id: dbOrder.orderId,
-    shopId: dbOrder.shopId,
+    id: dbOrder.orderId || dbOrder.order_id,
+    shopId: dbOrder.shopId || dbOrder.shop_id,
     shopName: shop ? shop.name : 'Campus Canteen',
-    customerId: dbOrder.customerId || 'guest-1',
-    customerName: dbOrder.customerName || 'Student Customer',
+    customerId: dbOrder.customerId || dbOrder.customer_id || 'guest-1',
+    customerName: dbOrder.customerName || dbOrder.customer_name || 'Student Customer',
     items,
-    grandTotal: Number(dbOrder.grandTotal),
-    paymentMethod: dbOrder.paymentMethod || 'Online UPI',
-    paymentStatus: dbOrder.paymentStatus || 'Paid',
-    transactionId: dbOrder.transactionId,
+    grandTotal: Number(dbOrder.grandTotal || dbOrder.grand_total),
+    paymentMethod: dbOrder.paymentMethod || dbOrder.payment_method || 'Online UPI',
+    paymentStatus: dbOrder.paymentStatus || dbOrder.payment_status || 'Paid',
+    transactionId: dbOrder.transactionId || dbOrder.transaction_id,
     paidAt: paidAtStr,
     status: dbOrder.status || 'Pending',
     createdAt: createdAtStr,
     createdAtTimestamp,
     estimatedMinutes: 12,
-    qrToken: dbOrder.qrToken,
+    qrToken: dbOrder.qrToken || dbOrder.qr_token,
     handedOverAt: handedOverAtStr,
     payeeUpiId: shop ? shop.upiId : '',
     payeeQrUrl: shop ? shop.qrImageUrl : '',
-    cancelledBy: dbOrder.cancelledBy,
+    cancelledBy: dbOrder.cancelledBy || dbOrder.cancelled_by,
     cancelledAt: cancelledAtStr,
-    cancellationReason: dbOrder.cancellationReason
+    cancellationReason: dbOrder.cancellationReason || dbOrder.cancellation_reason
   };
 }
 

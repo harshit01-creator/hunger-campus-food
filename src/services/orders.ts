@@ -92,23 +92,114 @@ interface CreateOrderInput {
 }
 
 async function executeDbInsert(orderDoc: any) {
-  // Try inserting with customerId and customerName first
-  const { data, error } = await supabase.from(ORDERS).insert([orderDoc]).select('*');
-  if (error) {
-    // If it fails due to missing columns in user's remote DB schema
-    if (error.message.includes('customerId') || error.message.includes('customerName') || error.message.includes('column')) {
-      console.warn('[Supabase Insert Schema Mismatch] Column customerId/customerName missing. Retrying insert without customer fields...');
-      const { customerId, customerName, ...stripped } = orderDoc;
-      const { data: retryData, error: retryError } = await supabase.from(ORDERS).insert([stripped]).select('*');
-      if (retryError) {
-        console.error('[Supabase Insert retry failed]:', retryError.message);
-        throw retryError;
+  let payload = { ...orderDoc };
+  const maxRetries = 15;
+  let attempts = 0;
+
+  while (attempts < maxRetries) {
+    attempts++;
+    try {
+      const { data, error } = await supabase.from(ORDERS).insert([payload]).select('*');
+      if (!error) {
+        return data;
       }
-      return retryData;
+      throw error;
+    } catch (err: any) {
+      const msg = err.message || '';
+      console.warn(`[Supabase Insert Attempt ${attempts} Failed]:`, msg);
+
+      // Check if it's a column missing error: "Could not find the 'XYZ' column of 'orders' in the schema cache"
+      const match = msg.match(/Could not find the '([^']+)' column/);
+      if (match && match[1]) {
+        const missingCol = match[1];
+        
+        // Try mapping camelCase to snake_case if possible
+        const camelToSnake: Record<string, string> = {
+          appliedDiscount: 'applied_discount',
+          customerId: 'customer_id',
+          customerName: 'customer_name',
+          transactionId: 'transaction_id',
+          paidAt: 'paid_at',
+          cancelledBy: 'cancelled_by',
+          cancelledAt: 'cancelled_at',
+          cancellationReason: 'cancellation_reason',
+          handedOverBy: 'handed_over_by'
+        };
+
+        if (camelToSnake[missingCol] && payload[missingCol] !== undefined) {
+          console.log(`[Mapping column] Mapping ${missingCol} -> ${camelToSnake[missingCol]}`);
+          payload[camelToSnake[missingCol]] = payload[missingCol];
+          delete payload[missingCol];
+        } else {
+          // Otherwise, strip the column entirely
+          console.log(`[Stripping column] Column '${missingCol}' is not supported by database schema. Removing from payload.`);
+          delete payload[missingCol];
+        }
+      } else {
+        // If it's a different error, throw it
+        throw err;
+      }
     }
-    throw error;
   }
-  return data;
+
+  throw new Error('Too many schema-mismatch retries during order insertion.');
+}
+
+async function executeUpdateDbOrder(orderId: string, updateFields: any) {
+  let payload = { ...updateFields };
+  const maxRetries = 15;
+  let attempts = 0;
+
+  while (attempts < maxRetries) {
+    attempts++;
+    try {
+      const { data, error } = await supabase
+        .from(ORDERS)
+        .update(payload)
+        .eq('orderId', orderId)
+        .select('*');
+      
+      if (!error) {
+        return { data: data && data.length > 0 ? data[0] : null, error: null };
+      }
+      throw error;
+    } catch (err: any) {
+      const msg = err.message || '';
+      console.warn(`[Supabase Update Attempt ${attempts} Failed]:`, msg);
+
+      const match = msg.match(/Could not find the '([^']+)' column/);
+      if (match && match[1]) {
+        const missingCol = match[1];
+        
+        const camelToSnake: Record<string, string> = {
+          paymentStatus: 'payment_status',
+          paidAt: 'paid_at',
+          qrToken: 'qr_token',
+          transactionId: 'transaction_id',
+          updatedAt: 'updated_at',
+          status: 'status',
+          foodCollected: 'food_collected',
+          handedOverAt: 'handed_over_at',
+          handedOverBy: 'handed_over_by',
+          cancelledBy: 'cancelled_by',
+          cancelledAt: 'cancelled_at',
+          cancellationReason: 'cancellation_reason'
+        };
+
+        if (camelToSnake[missingCol] && payload[missingCol] !== undefined) {
+          console.log(`[Mapping column] Mapping ${missingCol} -> ${camelToSnake[missingCol]}`);
+          payload[camelToSnake[missingCol]] = payload[missingCol];
+          delete payload[missingCol];
+        } else {
+          console.log(`[Stripping column] Column '${missingCol}' is not supported. Removing from update payload.`);
+          delete payload[missingCol];
+        }
+      } else {
+        return { data: null, error: err };
+      }
+    }
+  }
+  return { data: null, error: new Error('Too many schema-mismatch retries during order update.') };
 }
 
 export async function createOrder(input: CreateOrderInput): Promise<{
@@ -341,18 +432,13 @@ export async function confirmOrderPayment(
   const qrToken = `TURO-QR-${orderId}-${now}`;
 
   try {
-    const { data, error } = await supabase
-      .from(ORDERS)
-      .update({
-        paymentStatus: 'Paid',
-        paidAt: now,
-        qrToken: qrToken,
-        transactionId: utrClean,
-        updatedAt: now
-      })
-      .eq('orderId', orderId)
-      .select('*')
-      .single();
+    const { data, error } = await executeUpdateDbOrder(orderId, {
+      paymentStatus: 'Paid',
+      paidAt: now,
+      qrToken: qrToken,
+      transactionId: utrClean,
+      updatedAt: now
+    });
 
     if (!error && data) {
       console.log(`[Supabase Webhook Success] Generated receipt & QR token for order #${orderId}`);
@@ -401,13 +487,10 @@ export async function confirmOrderPayment(
 
 /** Shopkeeper action: Accept Order (Locks order, moves status from Pending -> Accepted) */
 export async function acceptOrder(orderId: string) {
-  await supabase
-    .from(ORDERS)
-    .update({
-      status: 'Accepted' as OrderStatus,
-      updatedAt: Date.now(),
-    })
-    .eq('orderId', orderId);
+  await executeUpdateDbOrder(orderId, {
+    status: 'Accepted' as OrderStatus,
+    updatedAt: Date.now(),
+  });
 }
 
 /** Customer / Shopkeeper action: Cancel Order (Validated server-side within 8-second window & status === 'Pending') */
@@ -439,17 +522,14 @@ export async function cancelOrder(
       nextPaymentStatus = 'Refund Pending';
     }
 
-    await supabase
-      .from(ORDERS)
-      .update({
-        status: 'Cancelled' as OrderStatus,
-        paymentStatus: nextPaymentStatus,
-        cancelledBy,
-        cancelledAt: Date.now(),
-        cancellationReason: reason,
-        updatedAt: Date.now(),
-      })
-      .eq('orderId', orderId);
+    await executeUpdateDbOrder(orderId, {
+      status: 'Cancelled' as OrderStatus,
+      paymentStatus: nextPaymentStatus,
+      cancelledBy,
+      cancelledAt: Date.now(),
+      cancellationReason: reason,
+      updatedAt: Date.now(),
+    });
 
     return { 
       success: true, 
@@ -463,13 +543,10 @@ export async function cancelOrder(
 
 /** Shop owner action: "Food is Ready" button (Updates status to 'Ready for Pickup'). */
 export async function markFoodReady(orderId: string) {
-  await supabase
-    .from(ORDERS)
-    .update({
-      status: 'Ready for Pickup' as OrderStatus,
-      updatedAt: Date.now(),
-    })
-    .eq('orderId', orderId);
+  await executeUpdateDbOrder(orderId, {
+    status: 'Ready for Pickup' as OrderStatus,
+    updatedAt: Date.now(),
+  });
 }
 
 export interface QrHandoverResult {
@@ -592,16 +669,13 @@ export async function verifyAndProcessQrHandover(
     }
 
     // Atomically complete handover and disable token
-    await supabase
-      .from(ORDERS)
-      .update({
-        status: 'Completed' as OrderStatus,
-        foodCollected: true,
-        handedOverAt: Date.now(),
-        handedOverBy: scannedByShopOwner,
-        updatedAt: Date.now(),
-      })
-      .eq('orderId', targetOrderId);
+    await executeUpdateDbOrder(targetOrderId, {
+      status: 'Completed' as OrderStatus,
+      foodCollected: true,
+      handedOverAt: Date.now(),
+      handedOverBy: scannedByShopOwner,
+      updatedAt: Date.now(),
+    });
 
     return { 
       success: true, 

@@ -285,12 +285,12 @@ export async function fetchShopsFromSupabase(): Promise<ShopAccount[]> {
         id: s.id,
         name: s.name,
         email: s.email,
-        upiId: s.upiId || '',
-        qrImageUrl: s.qrImageUrl || '',
-        rating: Number(s.rating) || 4.8,
-        openingTime: s.openingTime || '08:00',
-        closingTime: s.closingTime || '22:00',
-        isManuallyClosed: s.isManuallyClosed === true || s.isManuallyClosed === 'true' || false
+        upiId: s.upiId || s.upi_id || '',
+        qrImageUrl: s.qrImageUrl || s.qr_image_url || '',
+        rating: Number(s.rating || s.rating) || 4.8,
+        openingTime: s.openingTime || s.opening_time || '08:00',
+        closingTime: s.closingTime || s.closing_time || '22:00',
+        isManuallyClosed: s.isManuallyClosed === true || s.isManuallyClosed === 'true' || s.is_manually_closed === true || s.is_manually_closed === 'true' || false
       })) as ShopAccount[];
       saveShops(dbShops);
       return dbShops;
