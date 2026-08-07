@@ -318,6 +318,10 @@ export default function WebApp() {
 
   // i18n Multi-Language State
   const [currentLang, setCurrentLang] = useState<LanguageCode>(() => getSavedLanguage());
+
+  const [notificationPermissionGranted, setNotificationPermissionGranted] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && 'Notification' in window ? Notification.permission === 'granted' : false;
+  });
   const handleLangChange = (lang: LanguageCode) => {
     setCurrentLang(lang);
     saveLanguage(lang);
@@ -814,6 +818,7 @@ export default function WebApp() {
     try {
       const permission = await Notification.requestPermission();
       if (permission === 'granted') {
+        setNotificationPermissionGranted(true);
         console.log('[Notification] Permission granted.');
         if (currentUser && currentUser.id) {
           // Register service worker push subscription token if possible
@@ -821,7 +826,7 @@ export default function WebApp() {
             const registration = await navigator.serviceWorker.ready;
             const sub = await registration.pushManager.subscribe({
               userVisibleOnly: true,
-              applicationServerKey: 'BEl62OhArIK1t7H8m9jiLIyF961o10g25sVN5qNJD1sy3Cj0FBsqNp_13Z4Zt9yS_J3G1rU'
+              applicationServerKey: 'BIdqwJ_PbzmpZ7g0kZ2LHPp7Q4Zpl9UXsriGtL1a0TyMdygHo7tfAOi0AtWltko5edstl0CSCRwPbar5HUYVBhA'
             }).catch(() => null);
             
             if (sub) {
@@ -833,6 +838,8 @@ export default function WebApp() {
             }
           }
         }
+      } else {
+        setNotificationPermissionGranted(false);
       }
     } catch (e) {
       console.warn('[Notification] Permission request failed:', e);
@@ -994,93 +1001,27 @@ export default function WebApp() {
     }
   }, [currentUser, ordersHistory, currentOrder]);
 
-  // Trigger Web Push Notification to specific customer (supports Web Push and FCM token format)
+  // Trigger Web Push Notification to specific customer (supports Web Push and FCM token format via Vercel api/notify)
   const dispatchPushNotificationToCustomer = async (orderId: string, customerId: string, shopName: string) => {
     try {
-      const { data: userData, error } = await supabase
-        .from('user_accounts')
-        .select('pushToken')
-        .eq('id', customerId)
-        .single();
-        
-      if (error || !userData || !userData.pushToken) {
-        console.log('[Push Notification] Customer has no registered push token/subscription.');
-        return;
-      }
-      
-      const tokenStr = userData.pushToken.trim();
-      const tokenVal = orderId.split('-')[1] || orderId;
-      const messageText = `🍽️ Your order at ${shopName} is ready for pickup! Token #${tokenVal}.`;
-      
-      // 1. Try parsing as Web Push PushSubscription JSON
-      let isWebPush = false;
-      let webSub: any = null;
-      try {
-        if (tokenStr.startsWith('{')) {
-          webSub = JSON.parse(tokenStr);
-          if (webSub && webSub.endpoint) {
-            isWebPush = true;
-          }
-        }
-      } catch (parseErr) {
-        // Treat as plain FCM token
-      }
-
-      if (isWebPush && webSub) {
-        console.log('[Push Notification] Dispatching Web Push to subscription endpoint:', webSub.endpoint);
-        
-        // OneSignal integration
-        if (webSub.oneSignalPlayerId) {
-          await fetch('https://onesignal.com/api/v1/notifications', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json; charset=utf-8'
-            },
-            body: JSON.stringify({
-              app_id: 'ONESIGNAL_APP_ID_GOES_HERE',
-              include_subscription_ids: [webSub.oneSignalPlayerId],
-              contents: { en: messageText },
-              headings: { en: 'Order Ready! 🍽️' },
-              data: { orderId }
-            })
-          }).catch(err => console.warn('OneSignal API push error:', err));
-        } else {
-          console.log('[Push Notification Info] Web Push subscription is available, but Firebase FCM/OneSignal is not configured.');
-        }
-      } else {
-        // 2. Treat as FCM Registration Token (React Native Mobile Client)
-        console.log('[Push Notification] Found FCM Registration Token for customer:', tokenStr);
-        console.log(`[Push Notification Dispatch] Sending FCM alert: "${messageText}" to token: "${tokenStr}"`);
-        
-        const fcmServerKey = ((import.meta as any).env?.VITE_FCM_SERVER_KEY as string) || '';
-        if (fcmServerKey) {
-          await fetch('https://fcm.googleapis.com/fcm/send', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `key=${fcmServerKey}`
-            },
-            body: JSON.stringify({
-              to: tokenStr,
-              notification: {
-                title: 'Order Ready! 🍽️',
-                body: messageText,
-                sound: 'default'
-              },
-              data: {
-                orderId
-              }
-            })
-          })
-          .then(res => res.json())
-          .then(resData => console.log('[Push Notification FCM Response]:', resData))
-          .catch(err => console.warn('FCM legacy send error:', err));
-        } else {
-          console.log('[Push Notification Warning] FCM credentials not set in VITE_FCM_SERVER_KEY. Skipping push dispatch.');
-        }
-      }
+      console.log(`[Push Notification Dispatch] Triggering Vercel server push for order #${orderId}`);
+      await fetch('/api/notify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          orderId,
+          customerId,
+          status: 'Ready for Pickup',
+          shopName
+        })
+      })
+      .then(res => res.json())
+      .then(resData => console.log('[Push Notification Vercel API Response]:', resData))
+      .catch(err => console.error('[Push Notification Vercel API dispatch error]:', err));
     } catch (e) {
-      console.warn('[Push Notification] Dispatch error:', e);
+      console.warn('[Push Notification] Local dispatch trigger error:', e);
     }
   };
 
@@ -3290,6 +3231,30 @@ export default function WebApp() {
 
           return (
             <div className="max-w-2xl mx-auto space-y-6 animate-fadeIn">
+              {!notificationPermissionGranted && (
+                <div className={`p-4 rounded-2xl border flex items-center justify-between gap-4 text-left ${
+                  theme === 'dark' 
+                    ? 'bg-blue-500/10 border-blue-500/30 text-white' 
+                    : 'bg-blue-50 border-blue-100 text-slate-800'
+                }`}>
+                  <div className="flex items-start gap-3">
+                    <Bell className="w-5 h-5 text-blue-500 shrink-0 mt-0.5 animate-bounce" />
+                    <div>
+                      <h4 className="text-xs font-extrabold font-heading">Enable Background Alerts</h4>
+                      <p className={`text-[10px] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
+                        Get a real-time push alert even when the app is minimized or your phone is locked.
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={requestNotificationPermission}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-xl transition shadow-md shadow-blue-500/20"
+                  >
+                    Enable Alerts
+                  </button>
+                </div>
+              )}
+
               <div className={`p-6 rounded-3xl border text-center space-y-3 relative overflow-hidden ${
                 theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
               }`}>

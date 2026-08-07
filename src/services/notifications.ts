@@ -3,8 +3,7 @@
 
 import {Platform, PermissionsAndroid} from 'react-native';
 import messaging from '@react-native-firebase/messaging';
-import firestore from '@react-native-firebase/firestore';
-// import auth from '@react-native-firebase/auth'; // uncomment once auth is wired
+import { supabase } from './orders';
 
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   try {
@@ -22,10 +21,19 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
 
     const token = await messaging().getToken();
 
-    // const uid = auth().currentUser?.uid;
-    // if (uid) {
-    //   await firestore().collection('users').doc(uid).set({fcmToken: token}, {merge: true});
-    // }
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const email = session?.user?.email;
+      if (email) {
+        await supabase
+          .from('user_accounts')
+          .update({ pushToken: token })
+          .eq('email', email);
+        console.log('[FCM] Token saved to Supabase user_accounts for:', email);
+      }
+    } catch (dbErr: any) {
+      console.warn('[FCM] Failed to save token to database:', dbErr.message);
+    }
 
     // Foreground message handler — background/killed-state handling lives
     // in index.js via messaging().setBackgroundMessageHandler(), which must
@@ -35,8 +43,18 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     });
 
     messaging().onTokenRefresh(async newToken => {
-      // const uid = auth().currentUser?.uid;
-      // if (uid) await firestore().collection('users').doc(uid).update({fcmToken: newToken});
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const email = session?.user?.email;
+        if (email) {
+          await supabase
+            .from('user_accounts')
+            .update({ pushToken: newToken })
+            .eq('email', email);
+        }
+      } catch (e: any) {
+        console.warn('[FCM] Failed to update refreshed pushToken:', e.message);
+      }
     });
 
     return token;

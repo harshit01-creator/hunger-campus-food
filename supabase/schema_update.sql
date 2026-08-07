@@ -186,3 +186,7 @@ alter publication supabase_realtime add table public.shops;
 alter publication supabase_realtime add table public.food_items;
 alter publication supabase_realtime add table public.orders;
 
+-- 6. ADD PUSH NOTIFICATION TOKEN COLUMNS TO USER ACCOUNTS TABLE
+ALTER TABLE public.user_accounts ADD COLUMN IF NOT EXISTS "pushToken" TEXT;
+ALTER TABLE public.user_accounts ADD COLUMN IF NOT EXISTS push_token TEXT;
+
