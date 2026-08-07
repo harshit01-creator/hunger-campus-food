@@ -3637,104 +3637,135 @@ export default function WebApp() {
                 </div>
 
                 {/* INCOMING ORDERS */}
-                <div className={`p-6 rounded-3xl border space-y-4 ${
-                  theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
-                }`}>
-                  <h3 className="font-extrabold font-heading text-base border-b border-slate-800 pb-3 flex items-center justify-between">
-                    <span>Incoming Canteen Orders ({currentOrder ? 1 : 0})</span>
-                    <span className="text-xs text-slate-400">Accepting locks customer cancellation</span>
-                  </h3>
+                {(() => {
+                  const shopId = currentUser?.shopId || (shops.find(s => s.email === currentUser?.email)?.id) || 'shop-1';
+                  const activeOrders = ordersHistory.filter(o => 
+                    o.shopId === shopId && 
+                    ['Pending', 'Accepted', 'Ready for Pickup'].includes(o.status) &&
+                    o.paymentStatus === 'Paid'
+                  );
 
-                  {currentOrder ? (
-                    <div className={`p-5 rounded-2xl space-y-4 border ${
-                      theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
+                  return (
+                    <div className={`p-6 rounded-3xl border space-y-4 ${
+                      theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
                     }`}>
-                      <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-sm">Order #{currentOrder.id} • {currentOrder.customerName}</h4>
-                            
-                            <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-500 border-emerald-500/40 uppercase">
-                              {currentOrder.paymentStatus}
+                      <h3 className="font-extrabold font-heading text-base border-b border-slate-800 pb-3 flex items-center justify-between">
+                        <span>Incoming Canteen Orders ({activeOrders.length})</span>
+                        <span className="text-xs text-slate-400">Accepting locks customer cancellation</span>
+                      </h3>
+
+                      {/* Active Orders List / Queue Switcher */}
+                      {activeOrders.length > 1 && (
+                        <div className="flex gap-2 pb-3 overflow-x-auto border-b border-slate-800/60 mb-2">
+                          {activeOrders.map((o) => (
+                            <button
+                              key={o.id}
+                              onClick={() => setCurrentOrder(o)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
+                                currentOrder && currentOrder.id === o.id
+                                  ? 'bg-blue-600 text-white shadow-md'
+                                  : theme === 'dark' ? 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-250' : 'bg-slate-100 border border-slate-200 text-slate-650 hover:text-slate-850'
+                              }`}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-ping" />
+                              <span>Order #{o.id}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {currentOrder ? (
+                        <div className={`p-5 rounded-2xl space-y-4 border ${
+                          theme === 'dark' ? 'glass-card border-slate-800' : 'bg-slate-50 border-slate-200'
+                        }`}>
+                          <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-bold text-sm">Order #{currentOrder.id} • {currentOrder.customerName}</h4>
+                                
+                                <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border bg-emerald-500/20 text-emerald-500 border-emerald-500/40 uppercase">
+                                  {currentOrder.paymentStatus}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-400">Placed at {currentOrder.createdAt} • Total: ₹{currentOrder.grandTotal} ({currentOrder.paymentMethod})</p>
+                            </div>
+
+                            <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                              currentOrder.status === 'Pending' ? 'bg-yellow-500/20 text-yellow-500 border-yellow-500/40 animate-pulse' :
+                              currentOrder.status === 'Accepted' ? 'bg-blue-600/20 text-blue-500 border-blue-600/40' :
+                              currentOrder.status === 'Ready for Pickup' ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/40' :
+                              currentOrder.status === 'Cancelled' ? 'bg-red-500/20 text-red-500 border-red-500/40' :
+                              'bg-emerald-500/20 text-emerald-500 border-emerald-500/40'
+                            }`}>
+                              {currentOrder.status}
                             </span>
                           </div>
-                          <p className="text-[11px] text-slate-400">Placed at {currentOrder.createdAt} • Total: ₹{currentOrder.grandTotal} ({currentOrder.paymentMethod})</p>
-                        </div>
 
-                        <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
-                          currentOrder.status === 'Pending' ? 'bg-yellow-500/20 text-yellow-500 border-yellow-500/40 animate-pulse' :
-                          currentOrder.status === 'Accepted' ? 'bg-blue-600/20 text-blue-500 border-blue-600/40' :
-                          currentOrder.status === 'Ready for Pickup' ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/40' :
-                          currentOrder.status === 'Cancelled' ? 'bg-red-500/20 text-red-500 border-red-500/40' :
-                          'bg-emerald-500/20 text-emerald-500 border-emerald-500/40'
-                        }`}>
-                          {currentOrder.status}
-                        </span>
-                      </div>
-
-                      <div className="space-y-2">
-                        {currentOrder.items.map(item => (
-                          <div key={item.id} className={`flex justify-between text-xs p-2.5 rounded-xl border ${
-                            theme === 'dark' ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
-                          }`}>
-                            <span>{item.qty}x {item.name}</span>
-                            <span className="font-bold">₹{item.discountedPrice * item.qty}</span>
+                          <div className="space-y-2">
+                            {currentOrder.items.map(item => (
+                              <div key={item.id} className={`flex justify-between text-xs p-2.5 rounded-xl border ${
+                                theme === 'dark' ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200'
+                              }`}>
+                                <span>{item.qty}x {item.name}</span>
+                                <span className="font-bold">₹{item.discountedPrice * item.qty}</span>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
 
-                      <div className="pt-2 flex flex-wrap items-center gap-3">
-                        {currentOrder.status === 'Pending' && (
-                          <>
-                            <button 
-                              onClick={() => handleShopkeeperAcceptOrder(currentOrder.id)}
-                              className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/30"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                              <span>Accept Order & Lock Cancellation ✅</span>
-                            </button>
-                            <button 
-                              onClick={() => handleShopkeeperRejectOrder(currentOrder.id)}
-                              className="bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5"
-                            >
-                              <Ban className="w-4 h-4" />
-                              <span>Reject Order ❌</span>
-                            </button>
-                          </>
-                        )}
+                          <div className="pt-2 flex flex-wrap items-center gap-3">
+                            {currentOrder.status === 'Pending' && (
+                              <>
+                                <button 
+                                  onClick={() => handleShopkeeperAcceptOrder(currentOrder.id)}
+                                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/30"
+                                >
+                                  <CheckCircle2 className="w-4 h-4" />
+                                  <span>Accept Order & Lock Cancellation ✅</span>
+                                </button>
+                                <button 
+                                  onClick={() => handleShopkeeperRejectOrder(currentOrder.id)}
+                                  className="bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5"
+                                >
+                                  <Ban className="w-4 h-4" />
+                                  <span>Reject Order ❌</span>
+                                </button>
+                              </>
+                            )}
 
-                        {currentOrder.status === 'Accepted' && (
-                          <button 
-                            onClick={() => handleShopkeeperFoodReady(currentOrder.id)}
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/20 animate-pulse"
-                          >
-                            <Bell className="w-4 h-4" />
-                            <span>Food is Ready 🔔 (Mark Ready for Pickup)</span>
-                          </button>
-                        )}
+                            {currentOrder.status === 'Accepted' && (
+                              <button 
+                                onClick={() => handleShopkeeperFoodReady(currentOrder.id)}
+                                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/20 animate-pulse"
+                              >
+                                <Bell className="w-4 h-4" />
+                                <span>Food is Ready 🔔 (Mark Ready for Pickup)</span>
+                              </button>
+                            )}
 
-                        {currentOrder.status === 'Ready for Pickup' && (
-                          <button 
-                            onClick={() => handleShopkeeperManualHandover(currentOrder.id)}
-                            disabled={currentOrder.paymentStatus !== 'Paid'}
-                            className={`font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg transition ${
-                              currentOrder.paymentStatus === 'Paid'
-                                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-600/20 active:scale-95'
-                                : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
-                            }`}
-                          >
-                            <CheckCircle2 className="w-4 h-4" />
-                            <span>Mark as Handed Over (Manual) 🤝</span>
-                          </button>
-                        )}
-                      </div>
+                            {currentOrder.status === 'Ready for Pickup' && (
+                              <button 
+                                onClick={() => handleShopkeeperManualHandover(currentOrder.id)}
+                                disabled={currentOrder.paymentStatus !== 'Paid'}
+                                className={`font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg transition ${
+                                  currentOrder.paymentStatus === 'Paid'
+                                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-600/20 active:scale-95'
+                                    : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                                }`}
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>Mark as Handed Over (Manual) 🤝</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-6 text-slate-500 text-xs">
+                          No active incoming orders right now.
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="text-center py-6 text-slate-500 text-xs">
-                      No active incoming orders right now.
-                    </div>
-                  )}
-                </div>
+                  );
+                })()}
 
                 {/* COMPLETED ORDER HISTORY LOGS */}
                 {(() => {

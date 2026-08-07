@@ -679,7 +679,7 @@ export async function verifyAndProcessQrHandover(
     }
 
     // Atomically complete handover and disable token
-    await executeUpdateDbOrder(targetOrderId, {
+    await executeUpdateDbOrder(typedOrder.orderId, {
       status: 'Completed' as OrderStatus,
       foodCollected: true,
       handedOverAt: Date.now(),
@@ -689,8 +689,8 @@ export async function verifyAndProcessQrHandover(
 
     return { 
       success: true, 
-      message: `🎉 Order #${targetOrderId} verified & marked as Handed Over!`,
-      orderId: targetOrderId,
+      message: `🎉 Order #${typedOrder.orderId} verified & marked as Handed Over!`,
+      orderId: typedOrder.orderId,
       shopName,
       paymentStatus: typedOrder.paymentStatus,
       paymentMethod: typedOrder.paymentMethod,
