@@ -312,34 +312,51 @@ export async function addOrUpdateShopAccount(shop: ShopAccount): Promise<ShopAcc
     qrImageUrl: shop.qrImageUrl === '' ? null : shop.qrImageUrl
   };
 
-  const { data, error } = await supabase.from('shops').upsert([payload], { onConflict: 'id' }).select('*');
+  const currentShops = loadShops();
+  const exists = currentShops.some(s => s.id === shop.id);
+
+  let result;
+  if (exists) {
+    result = await supabase.from('shops').update(payload).eq('id', shop.id).select('*');
+  } else {
+    result = await supabase.from('shops').insert([payload]).select('*');
+  }
+
+  const { data, error } = result;
   
   if (error) {
     // If it fails because of NOT NULL constraint, retry with empty strings
     if (error.code === '23502' || error.message.includes('not-null')) {
-      console.warn('[Supabase NOT NULL constraint hit] Retrying shop upsert with empty strings...');
+      console.warn('[Supabase NOT NULL constraint hit] Retrying shop write with empty strings...');
       const fallbackPayload = {
         ...shop,
         upiId: shop.upiId || '',
         qrImageUrl: shop.qrImageUrl || ''
       };
-      const { data: retryData, error: retryError } = await supabase.from('shops').upsert([fallbackPayload], { onConflict: 'id' }).select('*');
+      
+      let retryResult;
+      if (exists) {
+        retryResult = await supabase.from('shops').update(fallbackPayload).eq('id', shop.id).select('*');
+      } else {
+        retryResult = await supabase.from('shops').insert([fallbackPayload]).select('*');
+      }
+      
+      const { data: retryData, error: retryError } = retryResult;
       if (retryError) {
-        console.error('[Supabase Insert Shop Retry Error]:', retryError.message);
+        console.error('[Supabase Write Shop Retry Error]:', retryError.message);
         throw new Error(`Database error: ${retryError.message}`);
       }
       if (!retryData || retryData.length === 0) {
         throw new Error('Fallback update returned no rows. This indicates the write was silently blocked by Supabase Row-Level Security (RLS) policies. Please check your privileges.');
       }
     } else {
-      console.error('[Supabase Insert Shop Error]:', error.message);
+      console.error('[Supabase Write Shop Error]:', error.message);
       throw new Error(`Database error: ${error.message}`);
     }
   } else if (!data || data.length === 0) {
     throw new Error('Update returned no rows. This indicates the write was silently blocked by Supabase Row-Level Security (RLS) policies. Please check your privileges.');
   }
 
-  const currentShops = loadShops();
   const existingIndex = currentShops.findIndex(s => s.id === shop.id);
   let updated: ShopAccount[];
   if (existingIndex >= 0) {

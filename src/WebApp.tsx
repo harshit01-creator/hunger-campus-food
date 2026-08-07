@@ -691,7 +691,7 @@ export default function WebApp() {
         setIsManuallyClosedInput(myShop.isManuallyClosed === true);
       }
     }
-  }, [currentUser, shopkeeperSubTab, shops]);
+  }, [currentUser, shopkeeperSubTab]);
 
 
   // Checkout Payment Verification Simulator Modal State
@@ -1478,6 +1478,42 @@ export default function WebApp() {
     }
   };
 
+  // SHOPKEEPER MANUAL HANDOVER ACTION (Moves Ready for Pickup -> Completed/Handed Over)
+  const handleShopkeeperManualHandover = async (orderIdToHandover: string) => {
+    const matched = ordersHistory.find(o => o.id === orderIdToHandover);
+    if (!matched) return;
+    if (matched.paymentStatus !== 'Paid') {
+      alert('⚠️ Cannot handover unpaid orders. Confirm payment first!');
+      return;
+    }
+
+    try {
+      const activeShopId = currentUser?.shopId || matched.shopId || 'shop-1';
+      const scanRes = await verifyAndProcessQrHandoverApi(
+        matched.qrToken || `TURO-QR-${orderIdToHandover}`,
+        activeShopId,
+        currentUser?.name || 'Shopkeeper'
+      );
+
+      if (scanRes.success) {
+        const updated: Order = {
+          ...matched,
+          status: 'Completed',
+          handedOverAt: new Date().toLocaleTimeString()
+        };
+        if (currentOrder && currentOrder.id === orderIdToHandover) {
+          setCurrentOrder(updated);
+        }
+        setOrdersHistory(prev => prev.map(o => o.id === orderIdToHandover ? updated : o));
+        alert('🎉 Success: Order marked as Handed Over / Completed!');
+      } else {
+        alert(`⚠️ Handover failed: ${scanRes.message}`);
+      }
+    } catch (err: any) {
+      alert(`⚠️ Handover failed: ${err.message}`);
+    }
+  };
+
   // SHOPKEEPER REJECT/CANCEL PENDING ORDER
   const handleShopkeeperRejectOrder = async (orderIdToReject: string) => {
     if (confirm(`Reject/Cancel Order #${orderIdToReject}?`)) {
@@ -2049,13 +2085,7 @@ export default function WebApp() {
   };
 
   const triggerManualSync = async () => {
-    const dbShops = await fetchShopsFromSupabase();
-    const dbMenu = await fetchMenuItemsFromSupabase();
-    const dbDisc = await fetchDiscountsFromSupabase();
-    setShops(dbShops);
-    setMenuItems(dbMenu);
-    setDiscounts(dbDisc);
-    setLastSyncTime(new Date().toLocaleTimeString());
+    await handleSync();
   };
 
   // SMART AI SALES ANALYTICS CALCULATIONS
@@ -2064,7 +2094,7 @@ export default function WebApp() {
     const shopOrders = ordersHistory.filter(o => 
       o.shopId === activeShopForOwner.id && 
       o.paymentStatus === 'Paid' && 
-      o.status === 'Completed'
+      o.status !== 'Cancelled'
     );
 
     const totalRev = shopOrders.reduce((sum, o) => sum + (Number(o.grandTotal) || 0), 0);
@@ -3677,6 +3707,21 @@ export default function WebApp() {
                           >
                             <Bell className="w-4 h-4" />
                             <span>Food is Ready 🔔 (Mark Ready for Pickup)</span>
+                          </button>
+                        )}
+
+                        {currentOrder.status === 'Ready for Pickup' && (
+                          <button 
+                            onClick={() => handleShopkeeperManualHandover(currentOrder.id)}
+                            disabled={currentOrder.paymentStatus !== 'Paid'}
+                            className={`font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-lg transition ${
+                              currentOrder.paymentStatus === 'Paid'
+                                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-emerald-600/20 active:scale-95'
+                                : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                            }`}
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>Mark as Handed Over (Manual) 🤝</span>
                           </button>
                         )}
                       </div>
