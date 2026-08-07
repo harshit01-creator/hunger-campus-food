@@ -1808,7 +1808,9 @@ export default function WebApp() {
         isManuallyClosed: isManuallyClosedInput
       };
 
+      console.log('[handleSavePaymentSettings Debug - updatedShopObj]:', updatedShopObj);
       const updatedShops = await addOrUpdateShopAccount(updatedShopObj);
+      console.log('[handleSavePaymentSettings Debug - updatedShops]:', updatedShops);
       setShops(updatedShops);
       setSelectedQrFile(null);
       alert('🎉 Success: Shop payment details saved to database!');
@@ -4198,7 +4200,9 @@ export default function WebApp() {
                                   value={openT.hour}
                                   onChange={(e) => {
                                     const h = parseInt(e.target.value, 10);
-                                    setOpeningTimeInput(convertTo24h(h, openT.minute, openT.period));
+                                    const val = convertTo24h(h, openT.minute, openT.period);
+                                    console.log('[setOpeningTimeInput hour onChange]:', val);
+                                    setOpeningTimeInput(val);
                                   }}
                                   className={selectStyle}
                                 >
@@ -4208,7 +4212,9 @@ export default function WebApp() {
                                 <select
                                   value={openT.minute}
                                   onChange={(e) => {
-                                    setOpeningTimeInput(convertTo24h(openT.hour, e.target.value, openT.period));
+                                    const val = convertTo24h(openT.hour, e.target.value, openT.period);
+                                    console.log('[setOpeningTimeInput minute onChange]:', val);
+                                    setOpeningTimeInput(val);
                                   }}
                                   className={selectStyle}
                                 >
@@ -4217,7 +4223,9 @@ export default function WebApp() {
                                 <select
                                   value={openT.period}
                                   onChange={(e) => {
-                                    setOpeningTimeInput(convertTo24h(openT.hour, openT.minute, e.target.value));
+                                    const val = convertTo24h(openT.hour, openT.minute, e.target.value);
+                                    console.log('[setOpeningTimeInput period onChange]:', val);
+                                    setOpeningTimeInput(val);
                                   }}
                                   className={selectStyle}
                                 >
@@ -4235,7 +4243,9 @@ export default function WebApp() {
                                   value={closeT.hour}
                                   onChange={(e) => {
                                     const h = parseInt(e.target.value, 10);
-                                    setClosingTimeInput(convertTo24h(h, closeT.minute, closeT.period));
+                                    const val = convertTo24h(h, closeT.minute, closeT.period);
+                                    console.log('[setClosingTimeInput hour onChange]:', val);
+                                    setClosingTimeInput(val);
                                   }}
                                   className={selectStyle}
                                 >
@@ -4245,7 +4255,9 @@ export default function WebApp() {
                                 <select
                                   value={closeT.minute}
                                   onChange={(e) => {
-                                    setClosingTimeInput(convertTo24h(closeT.hour, e.target.value, closeT.period));
+                                    const val = convertTo24h(closeT.hour, e.target.value, closeT.period);
+                                    console.log('[setClosingTimeInput minute onChange]:', val);
+                                    setClosingTimeInput(val);
                                   }}
                                   className={selectStyle}
                                 >
@@ -4254,7 +4266,9 @@ export default function WebApp() {
                                 <select
                                   value={closeT.period}
                                   onChange={(e) => {
-                                    setClosingTimeInput(convertTo24h(closeT.hour, closeT.minute, e.target.value));
+                                    const val = convertTo24h(closeT.hour, closeT.minute, e.target.value);
+                                    console.log('[setClosingTimeInput period onChange]:', val);
+                                    setClosingTimeInput(val);
                                   }}
                                   className={selectStyle}
                                 >
