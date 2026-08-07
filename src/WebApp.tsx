@@ -1209,24 +1209,15 @@ export default function WebApp() {
 
   useEffect(() => {
     if (isPayingGateway && pendingOrderId && currentCheckoutShop) {
-      // Check if the shop has a custom QR image uploaded
-      const isCustomQr = currentCheckoutShop.qrImageUrl && 
-                          !currentCheckoutShop.qrImageUrl.includes('qrserver.com') && 
-                          currentCheckoutShop.qrImageUrl.trim() !== '';
-
-      if (isCustomQr) {
-        setCheckoutQrDataUrl(currentCheckoutShop.qrImageUrl);
-      } else {
-        const upiUrl = `upi://pay?pa=${currentCheckoutShop.upiId}&pn=${encodeURIComponent(currentCheckoutShop.name)}&am=${cartSubtotal + 15}&tn=${pendingOrderId}&tr=${pendingOrderId}`;
-        QRCode.toDataURL(upiUrl, { width: 250, margin: 2 })
-          .then(url => {
-            setCheckoutQrDataUrl(url);
-          })
-          .catch(err => {
-            console.error('Failed to generate local QR for checkout, fallback to api:', err);
-            setCheckoutQrDataUrl(`https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(upiUrl)}`);
-          });
-      }
+      const upiUrl = `upi://pay?pa=${currentCheckoutShop.upiId}&pn=${encodeURIComponent(currentCheckoutShop.name)}&am=${cartSubtotal + 15}&tn=${pendingOrderId}&tr=${pendingOrderId}&cu=INR`;
+      QRCode.toDataURL(upiUrl, { width: 250, margin: 2 })
+        .then(url => {
+          setCheckoutQrDataUrl(url);
+        })
+        .catch(err => {
+          console.error('Failed to generate local QR for checkout, fallback to api:', err);
+          setCheckoutQrDataUrl(`https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(upiUrl)}`);
+        });
     }
   }, [isPayingGateway, pendingOrderId, currentCheckoutShop, cartSubtotal]);
 
@@ -4954,7 +4945,7 @@ export default function WebApp() {
 
       {/* ONLINE PAYMENT GATEWAY VERIFICATION MODAL */}
       {isPayingGateway && (() => {
-        const upiUrl = `upi://pay?pa=${currentCheckoutShop.upiId}&pn=${encodeURIComponent(currentCheckoutShop.name)}&am=${cartSubtotal + 15}&tn=${pendingOrderId}&tr=${pendingOrderId}`;
+        const upiUrl = `upi://pay?pa=${currentCheckoutShop.upiId}&pn=${encodeURIComponent(currentCheckoutShop.name)}&am=${cartSubtotal + 15}&tn=${pendingOrderId}&tr=${pendingOrderId}&cu=INR`;
         const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(upiUrl)}`;
 
         return (

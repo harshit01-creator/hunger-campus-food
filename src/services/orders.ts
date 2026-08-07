@@ -293,7 +293,8 @@ export async function createOrder(input: CreateOrderInput): Promise<{
       }
     }
   } catch (err: any) {
-    console.log('[Supabase client direct insert failed]:', err.message);
+    console.error('[Supabase client direct insert failed]:', err.message);
+    return { success: false, message: `Database error: Failed to place order. ${err.message}` };
   }
 
   return { success: true, message: 'Order placed, pending payment', orderId, qrToken, paymentStatus, transactionId, createdAt: now };
