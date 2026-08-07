@@ -582,13 +582,23 @@ export async function verifyAndProcessQrHandover(
       return { success: false, message: 'Invalid QR Code payload format.' };
     }
 
-    const { data: orderData, error } = await supabase
+    let { data: orderData, error } = await supabase
       .from(ORDERS)
       .select('*')
-      .eq('orderId', targetOrderId)
-      .single();
+      .eq('qrToken', targetOrderId)
+      .maybeSingle();
 
-    if (error || !orderData) {
+    if (!orderData) {
+      // Fallback: search by orderId column
+      const { data, error: err2 } = await supabase
+        .from(ORDERS)
+        .select('*')
+        .eq('orderId', targetOrderId)
+        .maybeSingle();
+      orderData = data;
+    }
+
+    if (!orderData) {
       return { success: false, message: `Order #${targetOrderId} not found in database.` };
     }
 

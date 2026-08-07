@@ -1553,7 +1553,10 @@ export default function WebApp() {
         parsed = { orderId: scannedRaw.trim() };
       }
       const targetOrderId = parsed.orderId || parsed.id || scannedRaw.trim();
-      const localOrder = ordersHistory.find(o => o.id === targetOrderId);
+      const localOrder = ordersHistory.find(o => 
+        o.qrToken === targetOrderId || 
+        o.id === targetOrderId
+      );
 
       if (localOrder) {
         if (localOrder.shopId !== loggedInShopId) {
@@ -2094,7 +2097,7 @@ export default function WebApp() {
     const shopOrders = ordersHistory.filter(o => 
       o.shopId === activeShopForOwner.id && 
       o.paymentStatus === 'Paid' && 
-      o.status !== 'Cancelled'
+      o.status === 'Completed'
     );
 
     const totalRev = shopOrders.reduce((sum, o) => sum + (Number(o.grandTotal) || 0), 0);
@@ -3732,6 +3735,67 @@ export default function WebApp() {
                     </div>
                   )}
                 </div>
+
+                {/* COMPLETED ORDER HISTORY LOGS */}
+                {(() => {
+                  const shopId = currentUser?.shopId || (shops.find(s => s.email === currentUser?.email)?.id) || 'shop-1';
+                  const completedOrders = ordersHistory.filter(o => 
+                    o.shopId === shopId && 
+                    ['Completed', 'Cancelled'].includes(o.status)
+                  );
+
+                  return (
+                    <div className={`p-6 rounded-3xl border space-y-4 ${
+                      theme === 'dark' ? 'glass-panel border-slate-800' : 'bg-white border-slate-200 shadow-xl'
+                    }`}>
+                      <h3 className="font-extrabold font-heading text-base border-b border-slate-800 pb-3 flex items-center justify-between">
+                        <span>Completed Order History ({completedOrders.length})</span>
+                      </h3>
+                      
+                      {completedOrders.length > 0 ? (
+                        <div className="grid gap-4 grid-cols-1 md:grid-cols-2 max-h-[350px] overflow-y-auto pr-2">
+                          {completedOrders.map(past => (
+                            <div 
+                              key={past.id}
+                              className={`p-4 rounded-2xl border flex items-center justify-between text-xs transition ${
+                                theme === 'dark' ? 'bg-slate-900/40 border-slate-800/80 hover:bg-slate-900/60' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              <div className="space-y-1">
+                                <p className="font-bold">Order #{past.id} • {past.customerName}</p>
+                                <p className="text-[10px] text-slate-400">Total: ₹{past.grandTotal} • {past.paymentMethod}</p>
+                                <div className="flex gap-2.5 flex-wrap pt-1">
+                                  {past.items.map(item => (
+                                    <span key={item.id} className="text-[9px] bg-slate-800/50 dark:bg-slate-900 px-1.5 py-0.5 rounded text-slate-400">
+                                      {item.qty}x {item.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="text-right space-y-1.5">
+                                <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                  past.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                }`}>
+                                  {past.status === 'Completed' ? 'Handed Over' : 'Cancelled'}
+                                </span>
+                                {past.handedOverAt && (
+                                  <p className="text-[9px] text-slate-500">Collected: {past.handedOverAt}</p>
+                                )}
+                                {past.cancelledAt && (
+                                  <p className="text-[9px] text-slate-500">Cancelled: {past.cancelledAt}</p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-slate-500 text-xs">
+                          No completed orders in history yet.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* FOOD MENU MANAGEMENT */}
                 <div className={`p-6 rounded-3xl border space-y-4 ${
